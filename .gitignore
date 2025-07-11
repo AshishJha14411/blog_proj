@@ -1,0 +1,44 @@
+# =========================================
+#  General & Project-Wide Ignores
+# =========================================
+# IDE and editor files
+.idea/
+.vscode/
+
+# OS-specific files
+.DS_Store
+*.swo
+
+# =========================================
+#  Backend (Python/FastAPI)
+# =========================================
+# Virtual Environment
+backend/.venv/
+backend/venv/
+
+# Python cache
+backend/__pycache__/
+backend/*.pyc
+
+# Secrets file
+backend/.env
+
+# =========================================
+#  Frontend (React/JS)
+# =========================================
+# Dependency folder (very important)
+frontend/node_modules/
+
+# Production build folder
+frontend/build/
+frontend/dist/
+
+# Local environment variables
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Debug logs
+frontend/npm-debug.log*
+frontend/yarn-error.log*
