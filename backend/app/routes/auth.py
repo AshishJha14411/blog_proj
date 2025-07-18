@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks,Q
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.schemas.auth import PasswordChangeRequest, SignUpRequest, SignUpResponse, LoginRequest, RefreshTokenRequest, TokenPair, MessageResponse, UserProfile, UserUpdate,VerifyOtpRequest
-from app.services.auth import  change_password, create_user, get_current_user,login_user, logout_user, update_profile,verify_email, verify_otp
-from app.dependencies import get_db, get_password_hasher, get_mailer
+from app.services.auth import  change_password, create_user, login_user, logout_user, update_profile,verify_email, verify_otp
+from app.dependencies import get_db, get_password_hasher, get_mailer,get_current_user
 from app.models.user import User
 from app.utils.rate_limiter import rate_limit
 from app.utils.rate_limiter import signup_rate_limiter 
