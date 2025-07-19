@@ -10,8 +10,8 @@ from app.services.admin import (
     list_users, update_user,
     soft_delete_user, list_audit_logs
 )
-from app.dependencies import get_db, require_roles
-from app.services.auth import get_current_user
+from app.dependencies import get_db, require_roles , get_current_user
+
 
 router = APIRouter(
     prefix="/admin",

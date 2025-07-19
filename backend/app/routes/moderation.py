@@ -9,8 +9,8 @@ from app.services.moderation import (
     flag_post, flag_comment,
     list_open_flags, resolve_flag
 )
-from app.dependencies import get_db, require_roles
-from app.services.auth import get_current_user
+from app.dependencies import get_db, require_roles , get_current_user
+
 
 router = APIRouter(tags=["Moderation"])
 

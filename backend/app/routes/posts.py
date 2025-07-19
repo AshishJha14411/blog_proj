@@ -1,16 +1,15 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, status, Query, Request
 from sqlalchemy.orm import Session
-from app.services.auth import get_current_user
+# from app.dependencies import get_current_user
 from app.schemas.posts import PostCreate, PostUpdate, PostOut, PostList
 from app.services.posts import (
     create_post, get_posts, get_post_details,
     update_post as svc_update, delete_post as svc_delete
 )
 from app.dependencies import (
-    get_db, require_roles, get_current_user_optional
+    get_db, require_roles, get_current_user_optional,get_current_user
 )
-from app.services.auth import get_current_user
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
 

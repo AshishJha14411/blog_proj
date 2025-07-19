@@ -182,19 +182,6 @@ def verify_otp(data: VerifyOtpRequest, db: Session) -> MessageResponse:
     db.commit()
     return MessageResponse(message="OTP verified successfully")
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
-    try:
-        payload = decode_access_token(token)
-        user_id = payload.get("user_id")
-        if user_id is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED)
-    except PyJWTError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED,"Invalid or expired token")
-    
-    user = db.query(User).get(user_id)
-    if not user:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
-    return user
 
 def update_profile(current: User,data: UserUpdate,db: Session) -> User:
     for field, value in data.dict(exclue_unset=True).items():

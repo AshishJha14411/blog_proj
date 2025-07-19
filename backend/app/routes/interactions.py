@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.schemas.interactions import ToggleResponse, BookmarkList
 from app.services.interactions import toggle_like, toggle_bookmark, list_bookmarks
-from app.dependencies import get_db
-from app.services.auth import get_current_user
+from app.dependencies import get_db,get_current_user
+
 
 router = APIRouter(tags=["Interactions"])
 
