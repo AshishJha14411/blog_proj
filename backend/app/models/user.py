@@ -23,3 +23,4 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     role = relationship(Role)
+    posts = relationship("Post", back_populates="user")

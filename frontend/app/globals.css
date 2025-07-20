@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme {
+  --color-primary: #34D399;  
+  --color-primary-light: #CFECDD;    /* A vibrant mint/emerald green */
+  --color-background: #F9FAFB;  /* A very light off-white/gray */
+  --color-text: #111827;          /* A dark charcoal for primary text */
+  --color-text-light: #6B7280;   /* Lighter gray for subtitles */
+  --color-secondary: #F8E4D4;
+  --color-secondary-light: #FCF2EE; /* A soft pink for secondary accents */
+}

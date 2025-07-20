@@ -7,8 +7,24 @@ from app.routes.moderation import router as moderation_router
 from app.routes.tags import router as tags_router
 from app.routes.analytics import router as analytics_router
 from app.routes.admin import router as admin_router
+from fastapi.middleware.cors import CORSMiddleware
+origins = [
+    "http://localhost:3000",
+    # "*"
+]
+
 
 app = FastAPI()
+
+# Add the CORS middleware to your application.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,      # Allow your frontend origin
+    allow_credentials=True,   # Allow cookies to be included
+    allow_methods=["*"],        # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],        # Allow all headers
+)
+
 
 @app.get("/")
 def read_root():
@@ -16,7 +32,7 @@ def read_root():
 
 # from fastapi import FastAPI
 
-app = FastAPI()
+# app = FastAPI()
 app.include_router(auth_router)
 app.include_router(posts_router)
 app.include_router(comments_router)

@@ -24,5 +24,5 @@ class Post(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
-    author = relationship("User", back_populates="posts")
+    user = relationship("User", back_populates="posts")
     tags = relationship("Tag", secondary="post_tags", back_populates="posts")
