@@ -24,3 +24,6 @@ class User(Base):
 
     role = relationship(Role)
     posts = relationship("Post", back_populates="user")
+    comments = relationship("Comment", back_populates="user")
+    likes = relationship("Like", back_populates="user")
+    bookmarks = relationship("Bookmark", back_populates="user")

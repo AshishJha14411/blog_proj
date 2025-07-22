@@ -3,6 +3,8 @@ from typing import List, Optional, Tuple
 from datetime import datetime
 from fastapi import HTTPException, status, Request
 
+from app.models.like import Like
+from app.models.bookmarks import Bookmark
 from app.models.post import Post
 from app.models.tag import Tag
 from app.models.view_history import ViewHistory
@@ -40,7 +42,7 @@ def create_post(db:Session, data:PostCreate, current_user:User) -> Post:
 
 
 def get_posts(db:Session,limit:int, offset:int,tag:Optional[str],author_id:Optional[int],current_user: Optional[User])-> Tuple[int,List[Post]]:
-    query = db.query(Post)
+    query = db.query(Post).filter(Post.deleted_at == None)
     if not (current_user and current_user.role.name in ("moderator","superadmin")):
         query = query.filter(Post.is_published == True)
     if author_id:
@@ -54,7 +56,7 @@ def get_posts(db:Session,limit:int, offset:int,tag:Optional[str],author_id:Optio
     return total, items
 
 def get_post_details(db:Session, post_id:int,current_user:Optional[User],request: Request) -> Post:
-    post = db.query(Post).filter(Post,id==post_id).first()
+    post = db.query(Post).filter(Post.id==post_id,Post.deleted_at == None).first()
     if not post:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Post not found")
     if not post.is_published:
@@ -68,8 +70,17 @@ def get_post_details(db:Session, post_id:int,current_user:Optional[User],request
         user_id = current_user.id if current_user else None,
         ip_address=request.client.host,
         user_agent=request.headers.get("user-agent"),
-        viewed_at = datetime.utcnow
+        viewed_at = datetime.utcnow()
     )
+    if current_user:
+        # Check if a 'like' record exists for this user and post
+        like = db.query(Like).filter_by(user_id=current_user.id, post_id=post.id).first()
+        post.is_liked_by_user = True if like else False
+
+        # Check if a 'bookmark' record exists
+        bookmark = db.query(Bookmark).filter_by(user_id=current_user.id, post_id=post.id).first()
+        post.is_bookmarked_by_user = True if bookmark else False
+    
     db.add(view)
     db.commit()
     return post
@@ -117,7 +128,7 @@ def delete_post(db:Session, post_id:int,current_user:User) -> None:
         post.user_id != current_user.id and current_user.role.name not in ("moderator","superadmin")
     ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Not Authorized")
-    db.delete(post)
+    post.deleted_at = datetime.utcnow()
     db.commit()
 
 

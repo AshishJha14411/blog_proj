@@ -1,7 +1,6 @@
 from logging.config import fileConfig
 import sys
 import os
-
 from sqlalchemy import create_engine, pool
 from alembic import context
 
@@ -19,7 +18,6 @@ from app.models.post import Post
 from app.models.tag import Tag, post_tags
 from app.models.comment import Comment
 from app.models.like import Like
-from app.models.bookmark import Bookmark
 from app.models.view_history import ViewHistory
 from app.models.flag import Flag
 from app.models.audit_log import AuditLog
@@ -27,7 +25,10 @@ from app.models.click import Click
 from app.models.otp_verification import OTPVerification
 from app.models.password_reset_token import PasswordResetToken
 from app.models.analytics_cache import AnalyticsCache
-
+from app.models.ads import Ad
+from app.models.bookmarks import Bookmark
+from app.models.notification import Notification
+from app.models.token_blacklist import TokenBlacklist
 # this is the Alembic Config object, which provides
 # access to values within the .ini file in use.
 config = context.config

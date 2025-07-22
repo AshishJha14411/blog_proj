@@ -1,3 +1,4 @@
+from app.schemas.posts import PostOut
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
@@ -31,4 +32,6 @@ def bookmark_post(post_id:int,db: Session = Depends(get_db), current_user = Depe
 
 def get_my_bookmarks(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     post = list_bookmarks(db,current_user)
-    return BookmarkList(items=posts)
+    validated_items = [PostOut.model_validate(post, from_attributes=True) for post in post]
+    
+    return BookmarkList(items=validated_items)

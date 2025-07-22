@@ -58,3 +58,8 @@ These folders have the same purpose as before:
 services/: To keep your API fetching logic (e.g., postService.ts).
 
 stores/: To keep your Zustand state management stores (e.g., authStore.ts).
+
+
+
+whenever we have a relationship with foreign key we need to create a relationship with the object.
+check out comments-user, posts-user etc.

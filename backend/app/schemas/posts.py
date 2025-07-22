@@ -1,7 +1,7 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field
 from typing import List, Optional
 from datetime import datetime
-
+from app.schemas.user import UserOut
 class PostCreate(BaseModel):
     title: str
     header: Optional[str] = None
@@ -29,11 +29,15 @@ class PostOut(BaseModel):
     header: Optional[str]
     content: str
     cover_image_url: Optional[HttpUrl]
-    author_id: int
+    user_id: int 
+    user: UserOut 
     tags: List[TagOut]
     is_published: bool
     created_at: datetime
     updated_at: datetime
+    
+    is_liked_by_user: bool = Field(False)
+    is_bookmarked_by_user: bool = Field(False)
 
     class Config:
         orm_mode = True
@@ -42,4 +46,7 @@ class PostList(BaseModel):
     total: int
     limit: int
     offset: int
-    items: List[PostOut]
+    items: list[PostOut]
+
+    class Config:
+        from_attributes = True # or orm_mode = True

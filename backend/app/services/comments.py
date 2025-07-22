@@ -8,11 +8,11 @@ from app.models.post import Post
 from app.models.user import User
 
 def create_comment(db:Session,post_id:int,content: str,current_user: User) -> Comment:
-    post = db.query(Post.filter(Post.id == post_id).first())
+    post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         raise HTTPException(status.HTTP_404_NOT_FOUND, details= " Post not found")
     
-    comment = Comment(user_id = current_user.id, post_id = post_id,content= content, create_at = datetime.utcnow)
+    comment = Comment(user_id = current_user.id, post_id = post_id,content= content, created_at = datetime.utcnow())
     db.add(comment)
     db.commit()
     db.refresh(comment)
@@ -31,7 +31,7 @@ def delete_comment(
     comment_id: int,
     current_user: User
 ) -> None:
-    comment = db.query(Comment).filter(comment.id == comment_id).first()
+    comment = db.query(Comment).filter(Comment.id == comment_id).first()
     if not comment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, details = "Comment not Found")
     if (comment.user_id != current_user.id and current_user.role.anme not in ("moderator","superadmin")):

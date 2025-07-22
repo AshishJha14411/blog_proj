@@ -23,6 +23,9 @@ class Post(Base):
     flag_source = Column(Enum(FlagSource), default=FlagSource.none)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
-
+    deleted_at = Column(DateTime, nullable=True, index=True)
+    
     user = relationship("User", back_populates="posts")
     tags = relationship("Tag", secondary="post_tags", back_populates="posts")
+    likes = relationship("Like", back_populates="post")
+    bookmarks = relationship("Bookmark", back_populates="post")

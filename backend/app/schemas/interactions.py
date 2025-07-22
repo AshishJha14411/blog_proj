@@ -9,3 +9,5 @@ class ToggleResponse(BaseModel):
 
 class BookmarkList(BaseModel):
     items: List[PostOut]
+    class Config:
+        from_attributes = True
