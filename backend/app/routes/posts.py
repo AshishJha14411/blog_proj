@@ -5,12 +5,12 @@ from sqlalchemy.orm import Session
 from app.schemas.posts import PostCreate, PostUpdate, PostOut, PostList
 from app.services.posts import (
     create_post, get_posts, get_post_details,
-    update_post as svc_update, delete_post as svc_delete
+    update_post as svc_update, delete_post as svc_delete, get_my_posts
 )
 from app.dependencies import (
     get_db, require_roles, get_current_user_optional,get_current_user
 )
-
+from app.models.user import User
 router = APIRouter(prefix="/posts", tags=["Posts"])
 
 @router.post("/", response_model=PostOut,status_code=status.HTTP_201_CREATED,dependencies=[Depends(require_roles("creator","moderator","superadmin"))])
@@ -22,6 +22,14 @@ def list_posts(limit: int = Query(10,gt=0,le=100),offset:int = Query(0,ge=0),tag
     total, items = get_posts(db, limit, offset, tag, author_id, current_user)
     validated_items = [PostOut.model_validate(item, from_attributes=True) for item in items]
     return PostList(total=total,limit=limit, offset=offset,items=validated_items)
+
+@router.get("/me", response_model=PostList, status_code = status.HTTP_200_OK)
+def list_my_posts(limit:int = Query(10,gt=0,le=100),offset:int = Query(0,ge=0),db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    total,items = get_my_posts(db,current_user,limit,offset)
+    
+    validated_items = [PostOut.model_validate(item, from_attributes=True) for item in items]
+    return PostList(total=total, limit=limit, offset=offset, items=validated_items)
+
 
 @router.get("/{post_id}",response_model=PostOut,status_code=status.HTTP_200_OK)
 def read_post(

@@ -38,7 +38,7 @@ export default function Navbar() {
           <Link href="/posts" className="text-text hover:text-white">Blogs</Link>
           {isAuthenticated ? <div className="">
             <Link href="/posts/create" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Create Post</Link>
-
+            <Link href="/myposts" className="text-text hover:text-white">My Post</Link>
             <Link href="/bookmarks" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Bookmarked</Link>
             <Link href="/profile" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Profile</Link>
             <Link href="/" className="rounded-md px-4 py-2 mx-1 bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60" onClick={handleLogout}>Log Out</Link>

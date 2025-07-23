@@ -30,7 +30,7 @@ def create_post(db:Session, data:PostCreate, current_user:User) -> Post:
     db.flush()
     if flagged:
         flag = Flag(
-            flagged_by_user_id = None,
+            flagged_by_user_id = 1,
             post_id = post.id,
             reason="; ".join(cats) or "Profanity detected",status="open",
             created_at = datetime.utcnow()
@@ -131,5 +131,10 @@ def delete_post(db:Session, post_id:int,current_user:User) -> None:
     post.deleted_at = datetime.utcnow()
     db.commit()
 
-
+def get_my_posts(db:Session,current_user: User, limit:int, offset:int) -> Tuple[int,List[Post]]:
+    query = db.query(Post).filter(Post.user_id == current_user.id)
+    total = query.count()
+    items = (query.order_by(Post.created_at.desc()).offset(offset).limit(limit).all())
+    
+    return total, items
 

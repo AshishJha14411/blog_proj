@@ -29,6 +29,8 @@ export interface Post {
     }
   is_liked_by_user: boolean;
   is_bookmarked_by_user: boolean;
+  is_published: boolean;
+  is_flagged: boolean;
 }
 
 interface PaginatedPosts {
@@ -63,3 +65,10 @@ export const updatePost = async (postId: string, postData: { title: string; cont
 export const deletePost = async (postId: string) => {
   await axiosInstance.delete(`${API_URL}/${postId}`,);
 };
+
+export const getMyPost = async(limit = 10, offset = 0): Promise<PaginatedPosts> => {
+    const response = await axiosInstance.get(`${API_URL}/me`, {
+params:{limit, offset},
+    })
+    return response.data
+}
