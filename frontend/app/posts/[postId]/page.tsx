@@ -8,6 +8,7 @@ import { Post } from '@/services/postService';
 import PostActions from '@/components/common/PostActions';
 import CommentList from '@/components/common/CommentList';
 import InteractionButtons from '@/components/common/InteractionButtons';
+import Link from 'next/link';
 export default function PostDetailPage() { 
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,6 +59,13 @@ export default function PostDetailPage() {
         </div>
         <div className="prose lg:prose-xl text-text">
           <p>{post.content}</p>
+        </div>
+         <div className="mb-4 flex flex-wrap gap-2">
+          {post.tags.map((tag) => (
+            <Link href={`/tags/${tag.name}`} key={tag.id} className="text-sm font-medium bg-primary/10 text-primary px-2 py-1 rounded-full hover:bg-primary hover:text-white transition-colors">
+              #{tag.name}
+            </Link>
+          ))}
         </div>
       </article>
       <div className="mt-8 border-t pt-4">

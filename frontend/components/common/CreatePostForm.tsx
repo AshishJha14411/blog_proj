@@ -7,18 +7,21 @@ import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
 import FormLabel from '@/components/ui/FormLabel';
+import TagInput from './TagInput';
+
+
 
 export default function CreatePostForm() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [error, setError] = useState('');
   const router = useRouter();
-
+  const [tags, setTags] = useState<string[]>([]);
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
     try {
-      const newPost = await createPost({ title, content });
+      const newPost = await createPost({ title, content,tags });
       // Redirect to the new post's page after creation
       router.push(`/posts/${newPost.id}`);
     } catch (err) {
@@ -50,6 +53,10 @@ export default function CreatePostForm() {
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />
+        </div>
+        <div>
+          <FormLabel htmlFor="tags">Tags</FormLabel>
+          <TagInput tags={tags} setTags={setTags} />
         </div>
         {error && <p className="text-sm text-red-500">{error}</p>}
         <div>

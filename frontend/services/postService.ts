@@ -1,5 +1,5 @@
 import axios from 'axios'
-
+import { Tag } from './tagService'
 import { useAuthStore } from '@/stores/authStore'
 // import { headers } from 'next/headers';
 import axiosInstance from '@/lib/axios'
@@ -17,6 +17,7 @@ const getAuthHeaders = () => {
 interface PostCreateData{
     title: string;
     content: string;
+    tags: string[];
 }
 export interface Post {
     id: number,
@@ -26,14 +27,15 @@ export interface Post {
     user: {
         id: number,
         username: string
-    }
+    },
+      tags: Tag[];
   is_liked_by_user: boolean;
   is_bookmarked_by_user: boolean;
   is_published: boolean;
   is_flagged: boolean;
 }
 
-interface PaginatedPosts {
+export interface PaginatedPosts {
     total: number;
     items: Post[]
 }
@@ -48,9 +50,9 @@ export const getPostById = async (postId: string) => {
     return response.data
 }
 
-export const getAllPosts = async (limit=10, offset=0):Promise<PaginatedPosts> => {
+export const getAllPosts = async (limit=10, offset=0, tag: string | null = null):Promise<PaginatedPosts> => {
     const response  = await axiosInstance.get(`${API_URL}`,{
-        params: {limit,offset}
+        params: {limit,offset, tag}
     })
     console.log(response)
     return response.data

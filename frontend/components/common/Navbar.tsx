@@ -36,6 +36,7 @@ export default function Navbar() {
         <div className="flex items-center gap-4">
           <Link href="/" className="text-text hover:text-white">Home</Link>
           <Link href="/posts" className="text-text hover:text-white">Blogs</Link>
+           <Link href="/tags" className="text-text hover:text-white">Tags</Link>
           {isAuthenticated ? <div className="">
             <Link href="/posts/create" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Create Post</Link>
             <Link href="/myposts" className="text-text hover:text-white">My Post</Link>

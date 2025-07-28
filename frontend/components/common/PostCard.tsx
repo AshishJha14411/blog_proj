@@ -41,6 +41,13 @@ export default function PostCard({ post }: PostCardProps) {
           </div>
           <p className="mb-4 text-text-light line-clamp-3">{post.content}</p>
         </div>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {post.tags.map((tag) => (
+            <span key={tag.id} className="text-xs font-medium bg-primary/10 text-primary px-2 py-1 rounded-full">
+              {tag.name}
+            </span>
+          ))}
+        </div>
         <div className="text-sm text-text-light">
           <span>By {post.user.username}</span>
           <span className="mx-2">•</span>
