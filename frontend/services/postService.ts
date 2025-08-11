@@ -20,19 +20,37 @@ interface PostCreateData{
     tags: string[];
 }
 export interface Post {
-    id: number,
-    title:string,
-    content: string,
-    created_at: string,
-    user: {
-        id: number,
-        username: string
-    },
-      tags: Tag[];
+  id: number;
+  title: string;
+  header?: string;
+  content: string;
+  cover_image_url?: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  // Relations
+  user: {
+    id: number;
+    username: string;
+  };
+  tags: Tag[];
+
+  // Flags & status
   is_liked_by_user: boolean;
   is_bookmarked_by_user: boolean;
   is_published: boolean;
   is_flagged: boolean;
+  flag_source: 'ai' | 'user' | 'none';
+
+  // AI Story-specific metadata
+  source?: 'user' | 'ai';
+  summary?: string;
+  genre?: string;
+  tone?: string;
+  length_label?: string; // e.g., "short", "medium", "long"
+  status?: 'draft' | 'generated' | 'published' | 'rejected';
+  version?: number;
+  last_feedback?: string;
 }
 
 export interface PaginatedPosts {

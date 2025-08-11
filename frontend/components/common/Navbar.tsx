@@ -13,15 +13,15 @@ export default function Navbar() {
   const router = useRouter()
   const handleLogout = async () => {
     try {
-      await logoutUser(); 
+      await logoutUser();
     } catch (error) {
       console.error("Logout failed on server, proceeding with client-side logout.", error);
     } finally {
-      logout(); 
+      logout();
 
       useAuthStore.persist.clearStorage();
 
-      router.push('/'); 
+      router.push('/');
     }
   };
   if (!isHydrated) {
@@ -35,11 +35,17 @@ export default function Navbar() {
         </Link>
         <div className="flex items-center gap-4">
           <Link href="/" className="text-text hover:text-white">Home</Link>
-          <Link href="/posts" className="text-text hover:text-white">Blogs</Link>
-           <Link href="/tags" className="text-text hover:text-white">Tags</Link>
+          <Link href="/posts" className="text-text hover:text-white">Stories</Link>
+          <Link href="/tags" className="text-text hover:text-white">Tags</Link>
           {isAuthenticated ? <div className="">
             <Link href="/posts/create" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Create Post</Link>
             <Link href="/myposts" className="text-text hover:text-white">My Post</Link>
+            <Link
+              href="/stories/generate"
+              className="rounded-md bg-black text-white px-3 py-2"
+            >
+              Generate Story
+            </Link>
             <Link href="/bookmarks" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Bookmarked</Link>
             <Link href="/profile" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Profile</Link>
             <Link href="/" className="rounded-md px-4 py-2 mx-1 bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60" onClick={handleLogout}>Log Out</Link>
@@ -53,3 +59,5 @@ export default function Navbar() {
     </header>
   );
 }
+
+

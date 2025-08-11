@@ -35,6 +35,7 @@ class PostOut(BaseModel):
     is_published: bool
     created_at: datetime
     updated_at: datetime
+    source: Optional[str]
     
     is_liked_by_user: bool = Field(False)
     is_bookmarked_by_user: bool = Field(False)
