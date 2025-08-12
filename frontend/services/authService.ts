@@ -39,9 +39,10 @@ interface SignUpData {
   email;
   username;
   password;
+  message;
 }
 
 export const signupUser = async (data: SignUpData) => {
-    const response = await axios.post(`${API_URL}auth/signup`, data);
+    const response = await axios.post(`${API_URL}/signup`, data);
     return response.data;
 }

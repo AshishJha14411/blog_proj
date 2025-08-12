@@ -34,3 +34,22 @@ class ModerationLogs(BaseModel):
 
 class ClicksDaily(BaseModel):
     stats: List[DayCount]
+
+
+class DailyMetric(BaseModel):
+    day: date
+    new_users: int
+    logins: int
+    posts_created: int
+    flags_created: int
+    ai_flags: int
+    human_flags: int
+    dau: int
+    posts_viewed: int
+    likes: int
+    comments: int
+    ad_impressions: int
+    ad_clicks: int
+
+class AnalyticsSeries(BaseModel):
+    items: List[DailyMetric]

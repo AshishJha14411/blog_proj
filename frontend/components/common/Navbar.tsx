@@ -33,21 +33,21 @@ export default function Navbar() {
         <Link href="/" className="text-xl font-bold text-primary">
           <img src="/Logo.png" alt="nav logo" className="h-[2rem] w-[5rem]" />
         </Link>
-        <div className="flex items-center gap-4">
-          <Link href="/" className="text-text hover:text-white">Home</Link>
-          <Link href="/posts" className="text-text hover:text-white">Stories</Link>
-          <Link href="/tags" className="text-text hover:text-white">Tags</Link>
-          {isAuthenticated ? <div className="">
-            <Link href="/posts/create" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Create Post</Link>
-            <Link href="/myposts" className="text-text hover:text-white">My Post</Link>
+        <div className="flex items-center font-normal text-[1.125rem]">
+          <Link href="/" className=" mx-2 hover:text-white">Home</Link>
+          <Link href="/posts" className="mx-2 hover:text-white">Stories</Link>
+          <Link href="/tags" className="mx-2 hover:text-white">Tags</Link>
+          {isAuthenticated ? <div className=" gap-4">
+            <Link href="/posts/create" className="mx-2 hover:text-white">Create Post</Link>
+            <Link href="/myposts" className="mx-2 hover:text-white">My Post</Link>
             <Link
               href="/stories/generate"
-              className="rounded-md bg-black text-white px-3 py-2"
+              className="hover:text-white mx-2"
             >
               Generate Story
             </Link>
-            <Link href="/bookmarks" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Bookmarked</Link>
-            <Link href="/profile" className="rounded-md px-4 py-2 mx-1  bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60">Profile</Link>
+            <Link href="/bookmarks" className="mx-2 hover:text-white">Bookmarked</Link>
+            <Link href="/profile" className="mx-2 hover:text-white">Profile</Link>
             <Link href="/" className="rounded-md px-4 py-2 mx-1 bg-secondary text-black hover:bg-text hover:text-white transition-colors ease-in delay-60" onClick={handleLogout}>Log Out</Link>
           </div> : <div>
 

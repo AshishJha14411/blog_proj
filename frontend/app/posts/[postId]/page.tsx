@@ -12,11 +12,12 @@ import RegenerateWithFeedback from "@/components/story/RegenrateWithFeedback";
 import PublishControls from "@/components/story/PublishControls";
 import DOMPurify from "isomorphic-dompurify";
 import Link from 'next/link';
+import { useHydratedAuth } from '@/hooks/useHydratedAuth';
 export default function PostDetailPage() {
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
+const { user, isAuthenticated, isHydrated } = useHydratedAuth();
   const params = useParams();
   const postId = params.postId as string;
 
@@ -36,7 +37,13 @@ export default function PostDetailPage() {
 
     fetchPost();
   }, [postId]);
-
+const canModify =
+  isHydrated &&
+  isAuthenticated && post !== null &&
+  (
+    user?.id === post.user.id ||
+    ['moderator', 'superadmin'].includes(user?.role?.name ?? '')
+  );
   if (loading) {
     return <p className="p-8 text-center">Loading post...</p>;
   }
@@ -85,10 +92,10 @@ export default function PostDetailPage() {
       )}
 
       {/* Publish/Unpublish controls (only for owner/mods—apply your auth checks) */}
-      <PublishControls postId={post.id} isPublished={post.is_published} />
+      {canModify&& <PublishControls postId={post.id} isPublished={post.is_published} />}
 
       {/* Feedback + regenerate (only for owner) */}
-      {post.source === "ai" && (
+      {post.source === "ai" && canModify &&  (
         <div className="mt-8">
           <RegenerateWithFeedback postId={post.id} />
         </div>

@@ -26,3 +26,7 @@ class FlagList(BaseModel):
 class FlagResolveRequest(BaseModel):
     # use `pattern=` instead of the removed `regex=`
     status: str = Field(..., pattern="^(resolved|ignored)$")
+
+class ModerationDecision(BaseModel):
+    note: Optional[str] = None   # for approve
+    reason: Optional[str] = None # for reject

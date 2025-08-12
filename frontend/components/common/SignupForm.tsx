@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 // You would create a 'signupUser' function in your authService.ts
-// import { signupUser } from '@/services/authService'; 
+import { signupUser } from '@/services/authService'; 
 import AuthCard from '../ui/AuthCard';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
@@ -20,7 +20,7 @@ export default function SignupForm() {
     event.preventDefault();
     setError('');
     try {
-      // await signupUser({ email, username, password });
+      await signupUser({ email, username, password });
       console.log('Signing up with:', { email, username, password });
       router.push('/login'); // Redirect to login after successful signup
     } catch (err) {

@@ -69,3 +69,51 @@ def patch_flag(
     current_user=Depends(require_roles("moderator","superadmin"))
 ):
     return resolve_flag(db, flag_id, data.status, current_user)
+
+
+from fastapi import APIRouter, Depends, Query, HTTPException, status
+from sqlalchemy.orm import Session
+from app.dependencies import get_db, require_roles, get_current_user
+from app.schemas.moderation import ModerationDecision
+from app.schemas.posts import PostList, PostOut
+from app.services.moderation import moderation_queue, approve_post, reject_post
+from app.models.user import User
+
+router = APIRouter(prefix="/moderation", tags=["Moderation"])
+
+@router.get("/queue", response_model=PostList)
+def list_queue(
+    status_filter: str | None = Query(None),   # "draft"|"generated"|"published"|"rejected" or None
+    author_id: int | None = Query(None),
+    tag: str | None = Query(None),
+    limit: int = Query(10, gt=0, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("moderator", "superadmin")),
+):
+    total, items = moderation_queue(db, status_filter, author_id, tag, limit, offset)
+    validated = [PostOut.model_validate(i, from_attributes=True) for i in items]
+    return PostList(total=total, limit=limit, offset=offset, items=validated)
+
+@router.post("/posts/{post_id}/approve", response_model=PostOut)
+def approve(
+    post_id: int,
+    body: ModerationDecision,
+    db: Session = Depends(get_db),
+    moderator: User = Depends(require_roles("moderator", "superadmin")),
+):
+    post = approve_post(db, post_id, moderator)
+    return PostOut.model_validate(post, from_attributes=True)
+
+@router.post("/posts/{post_id}/reject", response_model=PostOut)
+def reject(
+    post_id: int,
+    body: ModerationDecision,
+    db: Session = Depends(get_db),
+    moderator: User = Depends(require_roles("moderator", "superadmin")),
+):
+    reason = (body.reason or body.note or "").strip()
+    if not reason:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Reason is required to reject")
+    post = reject_post(db, post_id, moderator, reason=reason)
+    return PostOut.model_validate(post, from_attributes=True)
