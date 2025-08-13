@@ -15,7 +15,7 @@ interface PostActionsProps {
 export default function PostActions({ postAuthorId, postId, isAI }: PostActionsProps) {
   const { user, isAuthenticated, isHydrated } = useHydratedAuth();
   const router = useRouter();
-  console.log(user)
+  // console.log(user)
   const handleDelete = async () => {
     if (window.confirm('Are you sure you want to delete this post?')) {
       try {
@@ -26,14 +26,14 @@ export default function PostActions({ postAuthorId, postId, isAI }: PostActionsP
       }
     }
   };
-  console.log(isAI)
+  // console.log(isAI)
 
   if (!isHydrated || !isAuthenticated) {
     return null; // Don't show anything if not logged in or not hydrated
   }
 
   const canModify = user?.id === postAuthorId || ['moderator', 'superadmin'].includes(user?.role?.name || '');
-
+  console.log(user)
   if (canModify) {
     return (
       <div className="flex gap-2">

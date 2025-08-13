@@ -7,6 +7,7 @@ from app.utils.email import Mailer
 from app.core.config import settings
 from app.models.user import User
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import joinedload
 from jwt import PyJWTError
 from app.utils.security import hash_password, create_access_token,verify_password,decode_access_token
 
@@ -40,13 +41,16 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         if user_id is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED)
     except PyJWTError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED,"Invalid or expired token")
-    
-    user = db.query(User).get(user_id)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+
+    user = (
+        db.query(User)
+          .options(joinedload(User.role))  # <-- eager-load role
+          .get(user_id)
+    )
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
     return user
-
 def get_current_user_optional(
     creds: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db)

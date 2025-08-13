@@ -7,6 +7,7 @@ import { useHydratedAuth } from '@/hooks/useHydratedAuth';
 import { logoutUser } from "@/services/authService";
 import { useAuthStore } from "@/stores/authStore";
 import { useRouter } from "next/navigation";
+import NotificationsBell from "./NotificationsBell";
 export default function Navbar() {
   const { isAuthenticated, isHydrated } = useHydratedAuth();
   const logout = useAuthStore((state) => state.logout)
@@ -37,6 +38,7 @@ export default function Navbar() {
           <Link href="/" className=" mx-2 hover:text-white">Home</Link>
           <Link href="/posts" className="mx-2 hover:text-white">Stories</Link>
           <Link href="/tags" className="mx-2 hover:text-white">Tags</Link>
+          <NotificationsBell />
           {isAuthenticated ? <div className=" gap-4">
             <Link href="/posts/create" className="mx-2 hover:text-white">Create Post</Link>
             <Link href="/myposts" className="mx-2 hover:text-white">My Post</Link>

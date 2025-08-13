@@ -14,6 +14,11 @@ class SignUpResponse(BaseModel):
     username: str
     message: str
 
+class RoleOut(BaseModel):
+    id: int
+    name: str
+    class Config:
+        from_attributes = True
 # ------------LOGIN------------- #
 class LoginRequest(BaseModel):
     username: constr(min_length=3)
@@ -33,6 +38,7 @@ class MessageResponse(BaseModel):
 class VerifyOtpRequest(BaseModel):
     email: EmailStr
     otp_code: constr(min_length=6, max_length=6)
+    
 class UserProfile(BaseModel):
     id: int
     email: EmailStr
@@ -43,9 +49,9 @@ class UserProfile(BaseModel):
     total_posts: int
     total_likes: int
     total_comments: int
-
+    role: RoleOut
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class UserUpdate(BaseModel):
     profile_image_url: Optional[str] = None

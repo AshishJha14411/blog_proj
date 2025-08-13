@@ -3,12 +3,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 // Define the shape of the user object (you can expand this)
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  role?: { name: string }; // Add role for authorization checks
-}
+interface Role { id: number; name: string }
+interface User { id: number; username: string; email: string; role?: Role } 
 
 // Update the AuthState interface
 interface AuthState {
