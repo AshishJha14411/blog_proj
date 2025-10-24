@@ -41,4 +41,8 @@ frontend/.env.production.local
 
 # Debug logs
 frontend/npm-debug.log*
-frontend/yarn-error.log*
+frontend/yarn-error.log*node_modules/
+venv/
+.env
+.DS_Store
+Thumbs.db

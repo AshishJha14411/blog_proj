@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+/*
+ * ESPRESSO & ROSEWATER THEME
+ * A sophisticated theme that frames the light logo against a rich, warm background.
+ * The dark espresso navbar provides perfect contrast, while the dusty rose accents
+ * create a cohesive, elegant, and comfortable reading experience.
+*/
+:root {
+  /* Core Palette */
+  --nav-background: #3D352E;      /* Rich Espresso - The perfect warm, dark frame for the logo */
+  --page-background: #FDFBF8;     /* Warm Parchment - For the main body, easy on the eyes */
+  --accent-primary: #D9A6A3;         /* Muted Dusty Rose - A sophisticated primary accent for buttons */
+  --accent-primary-light: #EED7D5;   /* Lighter Rose for hover effects */
+  
+  /* Text Colors */
+  --text-main: #2A2420;           /* Dark Espresso - A warm, rich black for headings */
+  --text-body: #5C554E;           /* Warm Graphite - Softer brown-gray for paragraphs */
+  --text-subtle: #8D837A;         /* Muted Taupe - For subtitles, metadata */
+  --text-on-dark: #F5F3F1;        /* Soft off-white for text on the dark navbar */
+
+  /* Border & UI Element Colors */
+  --border-color: #E5E0DA;        /* Soft, warm gray for borders */
+  --ui-background: #FFFFFF;        /* Pure white for cards or modals to stand out */
+}
+
+/* @theme block for compatibility with some frameworks */
+@theme {
+  --color-primary: var(--accent-primary);
+  --color-primary-light: var(--accent-primary-light);
+  --color-background: var(--page-background);
+  --color-text: var(--text-main);
+  --color-text-light: var(--text-body);
+  
+  /* The secondary color can be the nav background */
+  --color-secondary: var(--nav-background);
+  --color-secondary-light: #5C554E; 
+}
+
