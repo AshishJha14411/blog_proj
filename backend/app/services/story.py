@@ -24,14 +24,20 @@ _llm = LLMAdapter()
 # --- STORY CREATION (HUMAN) ---
 def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
     tag_objs = []
-    for name in data.tag_names: # Use tag_names from the unified schema
+    allowed_roles = {"creator", "moderator", "admin"}
+    if current_user.role.name not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to create a story."
+        )
+    for name in dict.fromkeys(data.tag_names or []): # Use tag_names from the unified schema
         tag = db.query(Tag).filter(Tag.name == name).first()
         if not tag:
             tag = Tag(name=name)
             db.add(tag)
             db.flush()
         tag_objs.append(tag)
-        
+    
     # Profanity check
     flagged, cats = moderate_content([data.title, data.content])
     
@@ -52,15 +58,15 @@ def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
     db.flush() # Flush to get the new_story.id
 
     if flagged:
-        # Use None for system-generated flags, not a hardcoded user ID
         automod_user = get_automod_user(db)
-        flag = Flag(
+        db.add(Flag(
             flagged_by_user_id=automod_user.id,
             story_id=str(new_story.id),
             reason="; ".join(cats) or "Profanity detected by AI",
-            status="open"
-        )
-        db.add(flag)
+            status="open",
+        ))
+
+        # db.add(flag)
         
     db.commit()
     db.refresh(new_story)
@@ -68,6 +74,14 @@ def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
 
 # --- STORY CREATION (AI) ---
 def generate_story(db: Session, data: StoryGenerateIn, current_user: User) -> Story:
+    
+    allowed_roles = {"creator", "moderator", "admin"}
+    if current_user.role.name not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to create a story."
+        )
+    
     full_prompt = _build_story_prompt(
         user_prompt=data.prompt,
         genre=data.genre,
@@ -159,6 +173,8 @@ def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[U
         source=story.source,
         tags=[TagSummary(id=str(tag.id), name=tag.name) for tag in story.tags],
         # Explicitly build the nested UserSummary, converting its ID.
+        is_liked_by_user=bool(getattr(story, "is_liked_by_user", False)),
+        is_bookmarked_by_user=bool(getattr(story, "is_bookmarked_by_user", False)),
         user=UserSummary(
             id=str(story.user.id),
             username=story.user.username
@@ -181,10 +197,16 @@ def update_story(db: Session, story_id: uuid.UUID, data: StoryUpdate, current_us
             story.is_flagged = True
             story.flag_source = "ai"
             story.is_published = False
+
+            # ✅ FIX: assign automod user ID instead of None
+            automod_user = get_automod_user(db)
             db.add(Flag(
-                flagged_by_user_id=None, story_id=story.id,
-                reason="; ".join(cats) or "Profanity detected on update", status="open"
+                flagged_by_user_id=automod_user.id,
+                story_id=story.id,
+                reason="; ".join(cats) or "Profanity detected on update",
+                status="open"
             ))
+
 
     story.updated_at = datetime.utcnow()
     db.commit()
@@ -199,6 +221,7 @@ def delete_story(db: Session, story_id: uuid.UUID, current_user: User) -> None:
     
     story.deleted_at = datetime.utcnow()
     db.commit()
+    return {"message": "Story deleted successfully"}
 
 # --- AI-SPECIFIC MODIFICATIONS ---
 def regenerate_with_feedback(db: Session, story_id: uuid.UUID, feedback: str, current_user: User) -> Story:

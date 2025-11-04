@@ -174,7 +174,8 @@ def verify_email(token:str, db: Session) -> MessageResponse:
         return MessageResponse(message = "Email is Verified")
     user.is_verified = True
     db.commit()
-    return MessageResponse("Email is verified Successfully")
+    return MessageResponse(message="Email is verified Successfully")
+
 
 def verify_otp(data: VerifyOtpRequest, db: Session) -> MessageResponse:
     #filter by email

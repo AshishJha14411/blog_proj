@@ -1,10 +1,22 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings,SettingsConfigDict
 import os
 class Settings(BaseSettings):
     DATABASE_URL: str
+    # TEST_DB_BASE: str
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-
+    # PGHOST=str = str(os.getenv('ep-withered-hill-a1z14jet.ap-southeast-1.aws.neon.tech'))
+    # PGDATABASE=str = str(os.getenv('neondb'))
+    # PGUSER=str = str(os.getenv('test_db'))
+    # PGPASSWORD= str = str(os.getenv('npg_BcSLfR4doV9h'))
+    # PGSSLMODE= str = str(os.getenv('require'))
+    # PGCHANNELBINDING= str = str(os.getenv('require'))
+    PGHOST: str
+    PGDATABASE: str
+    PGUSER: str
+    PGPASSWORD: str
+    PGSSLMODE: str
+    PGCHANNELBINDING: str
     MAIL_SERVER: str
     MAIL_PORT: int
     MAIL_USERNAME: str
@@ -27,7 +39,10 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.8"))
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "2048"))
     LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "30"))  # seconds
-    class Config:
-        env_file = ".env"
-
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',                # ignore unknown env vars (prevents “extra_forbidden”)
+        case_sensitive=False
+    )
 settings = Settings()
