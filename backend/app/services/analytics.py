@@ -1,70 +1,118 @@
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Tuple
+
+from sqlalchemy import and_, cast, func, Date
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, Date, and_
-from datetime import timedelta, date, datetime
-from typing import List
-from datetime import date
+
 from app.models.analytics import AnalyticsCache
-from app.schemas.analytics import DailyMetric
+from app.models.audit_log import AuditLog
+from app.models.click import Click, ClickableType
+from app.models.flag import Flag
 from app.models.impression import Impression
-from app.models.click import Click
 from app.models.stories import Story
 from app.models.user import User
-from app.models.flag import Flag
-from app.models.audit_log import AuditLog
-from app.models.click import Click
+from app.schemas.analytics import DailyMetric
 
-def get_posts_daily(db: Session, days: int = 30):
-    cutoff = date.today() - timedelta(days=days-1)
-    q = (
+
+def _date_range_inclusive(start: date, end: date) -> List[date]:
+    days = []
+    cur = start
+    while cur <= end:
+        days.append(cur)
+        cur = cur + timedelta(days=1)
+    return days
+
+
+def _fill_daily_counts(rows: List[Tuple[date, int]], start: date, end: date) -> List[Dict]:
+    """
+    rows: list of (day, count) already aggregated by DATE.
+    Returns a dense series [ {"day": d, "count": n}, ... ] for all days in [start, end].
+    """
+    by_day = {d: c for d, c in rows}
+    out = []
+    for d in _date_range_inclusive(start, end):
+        out.append({"day": d, "count": int(by_day.get(d, 0))})
+    return out
+
+
+def get_posts_daily(db: Session, days: int = 30) -> List[Dict]:
+    end = date.today()
+    start = end - timedelta(days=days - 1)
+
+    # group by DATE(created_at)
+    rows = (
         db.query(
             cast(Story.created_at, Date).label("day"),
-            func.count().label("count")
+            func.count(Story.id).label("count"),
         )
-        .filter(cast(Story.created_at, Date) >= cutoff)
+        .filter(cast(Story.created_at, Date) >= start)
         .group_by("day")
         .order_by("day")
+        .all()
     )
-    return [ {"day": r.day, "count": r.count} for r in q ]
+    # rows: List[Row(day=date, count=int)] -> List[Tuple[date, int]]
+    tuples = [(r.day, r.count) for r in rows]
+    return _fill_daily_counts(tuples, start, end)
 
-def get_users_daily(db: Session, days: int = 30):
-    cutoff = date.today() - timedelta(days=days-1)
-    q = (
+
+def get_users_daily(db: Session, days: int = 30) -> List[Dict]:
+    end = date.today()
+    start = end - timedelta(days=days - 1)
+
+    rows = (
         db.query(
             cast(User.created_at, Date).label("day"),
-            func.count().label("count")
+            func.count(User.id).label("count"),
         )
-        .filter(cast(User.created_at, Date) >= cutoff)
+        .filter(cast(User.created_at, Date) >= start)
         .group_by("day")
         .order_by("day")
+        .all()
     )
-    return [ {"day": r.day, "count": r.count} for r in q ]
+    tuples = [(r.day, r.count) for r in rows]
+    return _fill_daily_counts(tuples, start, end)
 
-def get_flags_breakdown(db: Session):
-    total = db.query(func.count()).select_from(Flag).scalar()
-    ai_count = db.query(func.count()).select_from(Flag).filter(Flag.flagged_by_user_id == None).scalar()
-    human_count = total - ai_count
+
+def get_flags_breakdown(db: Session) -> Dict[str, int]:
+    total = db.query(func.count(Flag.id)).scalar() or 0
+
+    ai_count = (
+        db.query(func.count(Flag.id))
+        .join(User, User.id == Flag.flagged_by_user_id)
+        .filter(User.username == "automod")
+        .scalar()
+        or 0
+    )
+    human_count = max(total - ai_count, 0)
     return {"total": total, "ai_flags": ai_count, "human_flags": human_count}
 
-def get_moderation_logs(db: Session):
-    logs = (
-        db.query(AuditLog)
-          .order_by(AuditLog.timestamp.desc())
-          .all()
-    )
-    return logs
 
-def get_clicks_daily(db: Session, days: int = 30):
-    cutoff = date.today() - timedelta(days=days-1)
-    q = (
+def get_moderation_logs(db: Session) -> List[AuditLog]:
+    return (
+        db.query(AuditLog)
+        .order_by(AuditLog.timestamp.desc())
+        .all()
+    )
+
+
+def get_clicks_daily(db: Session, days: int = 30) -> List[Dict]:
+    end = date.today()
+    start = end - timedelta(days=days - 1)
+
+    rows = (
         db.query(
             cast(Click.clicked_at, Date).label("day"),
-            func.count().label("count")
+            func.count(Click.id).label("count"),
         )
-        .filter(cast(Click.clicked_at, Date) >= cutoff)
+        .filter(cast(Click.clicked_at, Date) >= start)
         .group_by("day")
         .order_by("day")
+        .all()
     )
-    return [ {"day": r.day, "count": r.count} for r in q ]
+    tuples = [(r.day, r.count) for r in rows]
+    return _fill_daily_counts(tuples, start, end)
 
 
 def get_analytics_series(db: Session, start: date, end: date) -> List[DailyMetric]:
@@ -74,44 +122,75 @@ def get_analytics_series(db: Session, start: date, end: date) -> List[DailyMetri
         .order_by(AnalyticsCache.day.asc())
         .all()
     )
-    return [
-        DailyMetric(
-            day=r.day,
-            new_users=r.new_users,
-            logins=r.logins,
-            posts_created=r.posts_created,
-            flags_created=r.flags_created,
-            ai_flags=r.ai_flags,
-            human_flags=r.human_flags,
-            dau=r.dau,
-            posts_viewed=r.posts_viewed,
-            likes=r.likes,
-            comments=r.comments,
-            ad_impressions=r.ad_impressions,
-            ad_clicks=r.ad_clicks,
+
+    # Map model->schema with safe defaults. Note: stories_created -> posts_created
+    items: List[DailyMetric] = []
+    for r in rows:
+        items.append(
+            DailyMetric(
+                day=r.day,
+                new_users=getattr(r, "new_users", 0),
+                logins=getattr(r, "logins", 0),
+                posts_created=getattr(r, "stories_created", 0),
+                flags_created=getattr(r, "flags_created", 0),
+                ai_flags=getattr(r, "ai_flags", 0),
+                human_flags=getattr(r, "human_flags", 0),
+                dau=getattr(r, "dau", 0),
+                posts_viewed=getattr(r, "posts_viewed", 0),
+                likes=getattr(r, "likes", 0),
+                comments=getattr(r, "comments", 0),
+                ad_impressions=getattr(r, "ad_impressions", 0),
+                ad_clicks=getattr(r, "ad_clicks", 0),
+            )
         )
-        for r in rows
-    ]
+    return items
 
-def get_ads_ctr_summary(db: Session, start: date, end: date):
-    # aggregate by ad (and optionally by slot from impressions)
-    imps = (
-        db.query(Impression.ad_id, Impression.slot, func.count().label("impressions"))
-        .filter(func.date(Impression.viewed_at) >= start, func.date(Impression.viewed_at) <= end)
-        .group_by(Impression.ad_id, Impression.slot)
+
+def get_ads_ctr_summary(db: Session, start: date, end: date) -> List[Dict]:
+    # Impressions by ad_id
+    imps_q = (
+        db.query(
+            Impression.ad_id,
+            func.count(Impression.id).label("impressions"),
+        )
+        .filter(
+            cast(Impression.viewed_at, Date) >= start,
+            cast(Impression.viewed_at, Date) <= end,
+        )
+        .group_by(Impression.ad_id)
         .all()
     )
-    clicks = (
-        db.query(Click.ad_id, func.count().label("clicks"))
-        .filter(func.date(Click.clicked_at) >= start, func.date(Click.clicked_at) <= end)
-        .group_by(Click.ad_id)
+    imps_by_ad = {ad_id: int(imps) for ad_id, imps in imps_q}
+
+    # Clicks by ad_id (Click.clickable_id) scoped to AD
+    clicks_q = (
+        db.query(
+            Click.clickable_id,
+            func.count(Click.id).label("clicks"),
+        )
+        .filter(
+            Click.clickable_type == ClickableType.AD,
+            cast(Click.clicked_at, Date) >= start,
+            cast(Click.clicked_at, Date) <= end,
+        )
+        .group_by(Click.clickable_id)
         .all()
     )
+    clicks_by_ad = {ad_id: int(c) for ad_id, c in clicks_q}
 
-    clicks_by_ad = {a: c for (a, c) in clicks}
-    out = []
-    for ad_id, slot, imp in imps:
-        c = clicks_by_ad.get(ad_id, 0)
-        ctr = (c / imp) if imp else 0.0
-        out.append({"ad_id": ad_id, "slot": slot, "impressions": imp, "clicks": c, "ctr": ctr})
+    all_ad_ids = set(imps_by_ad.keys()) | set(clicks_by_ad.keys())
+
+    out: List[Dict] = []
+    for ad_id in sorted(all_ad_ids):
+        imp = imps_by_ad.get(ad_id, 0)
+        clk = clicks_by_ad.get(ad_id, 0)
+        ctr = float(clk) / imp if imp > 0 else 0.0
+        out.append(
+            {
+                "ad_id": ad_id,
+                "impressions": imp,
+                "clicks": clk,
+                "ctr": ctr,
+            }
+        )
     return out

@@ -9,7 +9,7 @@ from app.routes.auth import router as auth_router
 from app.routes.story import router as posts_router
 from app.routes.comments import router as comments_router
 from app.routes.interactions import router as interactions_router
-from app.routes.moderation import router as moderation_router
+from app.routes.moderation import router as moderation_router, user_action_router
 from app.routes.tags import router as tags_router
 from app.routes.analytics import router as analytics_router
 from app.routes.admin import router as  admin_features_router
@@ -18,7 +18,7 @@ from app.routes.ads import router as ad_admin_router, public_router as ad_public
 # Logging utils & middleware
 from app.utils.db_logger import DatabaseLogHandler, PiiScrubbingFilter
 from app.middleware.logging import LoggingMiddleware
-
+from app.routes import media
 # ---- App-scoped logger (avoid root) ----
 app_logger = logging.getLogger("app")
 app_logger.setLevel(logging.INFO)
@@ -92,3 +92,5 @@ app.include_router(admin_features_router)
 app.include_router(notifications_router)
 app.include_router(ad_admin_router)
 app.include_router(ad_public_router)
+app.include_router(media.router)
+app.include_router(user_action_router) 

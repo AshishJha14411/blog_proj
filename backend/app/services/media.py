@@ -1,7 +1,7 @@
 # app/services/media.py
 
 from fastapi import HTTPException, status, UploadFile
-from app.utils.cloudinary_ import upload_file
+from app.utils.cloudinary import upload_file
 
 def upload_image(file: UploadFile, folder: str = "posts") -> str:
     """

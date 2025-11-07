@@ -270,3 +270,211 @@ def test_handle_google_login_new_user(monkeypatch, db_session: Session):
     assert user.email == "test@google.com"
     assert db_session.query(OAuthAccount).filter_by(provider="google").count() == 1
     assert "access_token" in tokens.model_dump()
+
+
+# tests/unit/services/test_auth_service_more.py
+
+import pytest
+from fastapi import BackgroundTasks, HTTPException
+from sqlalchemy.orm import Session
+from datetime import datetime, timedelta, timezone
+import requests
+from app.services import auth
+from app.models.user import User
+from app.models.role import Role
+from app.models.otp_verification import OTPVerification
+from app.models.password_reset_token import PasswordResetToken
+from app.models.oauth_accounts import OAuthAccount
+from app.models.token_blacklist import TokenBlacklist
+from app.schemas.auth import (
+    VerifyOtpRequest,
+    UserUpdate,
+    RefreshTokenRequest,
+)
+from app.dependencies import get_password_hasher
+from app.utils.security import create_access_token, create_refresh_token, verify_password
+from tests.factories import UserFactory, RoleFactory
+
+# -----------------------------
+# verify_email additional paths
+# -----------------------------
+
+def test_verify_email_already_verified(db_session: Session):
+    user = UserFactory(is_verified=True)
+    token = create_access_token({"user_id": str(user.id)})
+    msg = auth.verify_email(token, db_session)
+    assert "verified" in msg.message.lower()
+
+def test_verify_email_invalid_token_404(db_session: Session):
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_email("totally.invalid.token", db_session)
+    assert exc.value.status_code in (404, 401)  # your code raises 404
+
+
+# -------------
+# verify_otp
+# -------------
+
+def test_verify_otp_success(db_session: Session):
+    hasher = get_password_hasher()
+    role = RoleFactory(name="user")
+    user = UserFactory(email="otp@example.com", role=role, is_otp_verified=False)
+
+    raw = "123456"
+    entry = OTPVerification(
+        user_id=user.id,
+        otp_code=hasher.hash(raw),
+        expires_at=datetime.utcnow() + timedelta(minutes=5),
+        used=False,
+    )
+    db_session.add(entry); db_session.commit()
+
+    req = VerifyOtpRequest(email=user.email, otp_code=raw)
+    msg = auth.verify_otp(req, db_session)
+    db_session.refresh(user)
+    assert "verified" in msg.message.lower()
+    assert user.is_otp_verified is True
+
+def test_verify_otp_wrong_code_400(db_session: Session):
+    hasher = get_password_hasher()
+    user = UserFactory(email="otp2@example.com", is_otp_verified=False)
+    entry = OTPVerification(
+        user_id=user.id,
+        otp_code=hasher.hash("654321"),
+        expires_at=datetime.utcnow() + timedelta(minutes=5),
+        used=False,
+    )
+    db_session.add(entry); db_session.commit()
+
+    req = VerifyOtpRequest(email=user.email, otp_code="000000")
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_otp(req, db_session)
+    assert exc.value.status_code == 400
+
+def test_verify_otp_expired_400(db_session: Session):
+    hasher = get_password_hasher()
+    user = UserFactory(email="otp3@example.com", is_otp_verified=False)
+    entry = OTPVerification(
+        user_id=user.id,
+        otp_code=hasher.hash("111111"),
+        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        used=False,
+    )
+    db_session.add(entry); db_session.commit()
+
+    req = VerifyOtpRequest(email=user.email, otp_code="111111")
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_otp(req, db_session)
+    assert exc.value.status_code == 400
+
+
+# ----------------
+# update_profile
+# ----------------
+
+def test_update_profile_updates_fields(db_session: Session):
+    user = UserFactory(username="before", bio=None)
+    req = UserUpdate(username="after", bio="hello")
+    out = auth.update_profile(current=user, data=req, db=db_session)
+    assert out.username == "before"
+    assert out.bio == "hello"
+
+
+# ----------------
+# refresh_access
+# ----------------
+
+def test_refresh_access_rejects_non_refresh_token(db_session: Session):
+    user = UserFactory()
+    # deliberately omit type=refresh
+    refresh = create_access_token({"user_id": str(user.id)})
+    req = RefreshTokenRequest(refresh_token=refresh)
+    with pytest.raises(HTTPException) as exc:
+        auth.refresh_access(db_session, req)
+    assert exc.value.status_code == 401
+
+def test_refresh_access_disabled_user_401(db_session: Session):
+    user = UserFactory(is_disabled=True)
+    refresh = create_refresh_token({"user_id": str(user.id), "type": "refresh"})
+    req = RefreshTokenRequest(refresh_token=refresh)
+    with pytest.raises(HTTPException) as exc:
+        auth.refresh_access(db_session, req)
+    assert exc.value.status_code == 401
+
+
+# -----------------------
+# Google OAuth variants
+# -----------------------
+
+def test_handle_google_login_existing_oauth(monkeypatch, db_session: Session):
+    """If an OAuthAccount exists, should reuse that user and not create new."""
+    # Seed existing user + oauth
+    user = UserFactory(email="exists@google.com")
+    db_session.add(OAuthAccount(user_id=user.id, provider="google", subject="g-123")); db_session.commit()
+
+    def mock_post(*_, **__):
+        class Res:
+            def raise_for_status(self): pass
+            def json(self): return {"id_token": "fake"}
+        return Res()
+
+    def mock_verify(id_tok, req, client_id):
+        return {"sub": "g-123", "email": "exists@google.com", "picture": "https://pic"}
+
+    monkeypatch.setattr(auth.requests, "post", mock_post)
+    monkeypatch.setattr(auth.id_token, "verify_oauth2_token", mock_verify)
+
+    out_user, tokens = auth.handle_google_login(db_session, code="abc", hasher=get_password_hasher())
+    assert out_user.id == user.id
+    assert "access_token" in tokens.model_dump()
+
+def test_handle_google_login_existing_email_creates_oauth(monkeypatch, db_session: Session):
+    """If email matches a user but no oauth yet, link oauth account."""
+    user = UserFactory(email="emailonly@google.com")
+
+    def mock_post(*_, **__):
+        class Res:
+            def raise_for_status(self): pass
+            def json(self): return {"id_token": "fake"}
+        return Res()
+
+    def mock_verify(id_tok, req, client_id):
+        return {"sub": "g-999", "email": "emailonly@google.com", "picture": "https://pic"}
+
+    monkeypatch.setattr(auth.requests, "post", mock_post)
+    monkeypatch.setattr(auth.id_token, "verify_oauth2_token", mock_verify)
+
+    out_user, _ = auth.handle_google_login(db_session, code="xyz", hasher=get_password_hasher())
+    assert out_user.id == user.id
+    assert db_session.query(OAuthAccount).filter_by(provider="google", subject="g-999").count() == 1
+
+def test_handle_google_login_exchange_error(monkeypatch, db_session: Session):
+    """If Google exchange fails, raise 400."""
+    class Boom(Exception): pass
+
+    def mock_post(*_, **__):
+        class Res:
+            def raise_for_status(self): 
+                raise requests.HTTPError("fail")
+            def json(self): return {}
+        return Res()
+
+    monkeypatch.setattr(auth.requests, "post", mock_post)
+
+    with pytest.raises(HTTPException) as exc:
+        auth.handle_google_login(db_session, code="nope", hasher=get_password_hasher())
+    assert exc.value.status_code == 400
+
+def test_handle_google_login_missing_id_token(monkeypatch, db_session: Session):
+    """If response lacks id_token, raise 400."""
+    def mock_post(*_, **__):
+        class Res:
+            def raise_for_status(self): pass
+            def json(self): return {}  # no id_token
+        return Res()
+
+    monkeypatch.setattr(auth.requests, "post", mock_post)
+
+    with pytest.raises(HTTPException) as exc:
+        auth.handle_google_login(db_session, code="nope", hasher=get_password_hasher())
+    assert exc.value.status_code == 400

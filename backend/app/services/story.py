@@ -144,7 +144,13 @@ def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[U
     
     if not story.is_published and not (current_user and (story.user_id == current_user.id or current_user.role.name in ("moderator", "superadmin"))):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
-        
+    
+    if current_user:
+        story.is_liked_by_user = db.query(Like).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
+        story.is_bookmarked_by_user = db.query(Bookmark).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
+    else:
+        story.is_liked_by_user = False
+        story.is_bookmarked_by_user = False
     # Log the view
     db.add(ViewHistory(
         story_id=story.id, user_id=current_user.id if current_user else None,

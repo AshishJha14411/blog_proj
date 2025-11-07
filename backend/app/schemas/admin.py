@@ -1,56 +1,87 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
-from datetime import datetime
-from app.schemas.auth import UserProfile
-from uuid import UUID
-class AdminUserOut(UserProfile):
-    is_active: bool
-    role_id: UUID
+# app/schemas/admin.py
+from __future__ import annotations
 
-    class Config:
-        from_attributes = True
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, Field, computed_field
+
+
+# ----------------- Role -----------------
+
+class RoleOut(BaseModel):
+    id: UUID
+    name: str
+
+    model_config = dict(from_attributes=True)
+
+
+# ----------------- Admin Users -----------------
+
+class AdminUserOut(BaseModel):
+    id: UUID
+    username: str
+    email: str
+    role: Optional[RoleOut] = None
+
+    # Your model stores this flag; keep it in the API
+    is_disabled: bool = Field(default=False)
+
+    # Many clients/tests expect is_active; compute it from is_disabled
+    @computed_field  # type: ignore[misc]
+    @property
+    def is_active(self) -> bool:
+        return not self.is_disabled
+
+    model_config = dict(from_attributes=True)
+
 
 class AdminUserUpdate(BaseModel):
-    role_id: Optional[int]
-    is_active: Optional[bool]
+    # Must be UUID (your models use UUID PKs)
+    role_id: Optional[UUID] = None
+    # Align to model & service (tests send/expect this)
+    is_disabled: Optional[bool] = None
+
+
+# ----------------- Audit Logs -----------------
 
 class AuditLogOut(BaseModel):
     id: UUID
-    actor_user_id: UUID
+    actor_user_id: Optional[UUID] = None
     action: str
-    target_type: str
-    target_id: UUID
-    details: str
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    # Your service stores a dict in after_state
+    after_state: Dict[str, Any] = Field(default_factory=dict)
+    # details is not always present in your model -> make it optional
+    details: Optional[Dict[str, Any]] = None
     timestamp: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = dict(from_attributes=True)
+
 
 class AuditLogList(BaseModel):
     logs: List[AuditLogOut]
 
 
+# ----------------- Creator Requests -----------------
+
 class CreatorRequestCreate(BaseModel):
-    reason: Optional[str] = None
+    reason: str
 
-# A summary of a user for nested responses
-class UserSummary(BaseModel):
-    id: UUID
-    username: str
 
-    class Config:
-        from_attributes = True
-
-# The full response model for a creator request
 class CreatorRequestOut(BaseModel):
     id: UUID
-    user: UserSummary
-    status: str
-    reason: Optional[str] = None
+    user_id: UUID
+    reason: str
+    status: str  # RequestStatus enum serialized as string
+    created_at: datetime
+    reviewed_by_id: Optional[UUID] = None
+    reviewed_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = dict(from_attributes=True)
 
-# Schema for an admin reviewing a request
+
 class CreatorRequestReview(BaseModel):
-    action: str # Must be "approve" or "reject"
+    action: str  # "approve" | "reject"

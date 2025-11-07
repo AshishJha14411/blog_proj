@@ -12,6 +12,8 @@ from jwt import PyJWTError
 from app.utils.security import hash_password, create_access_token,verify_password,decode_access_token
 from typing import Optional
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl = "/auth/login")
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -89,3 +91,7 @@ def require_roles(*allowed_roles: str):
 
 # Must import this for require_roles to work
 # from app.services.auth import get_current_user
+
+# Create the *instances* of the dependencies
+creator_or_superadmin = require_roles("creator", "superadmin")
+superadmin_only = require_roles("superadmin")

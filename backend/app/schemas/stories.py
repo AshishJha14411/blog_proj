@@ -4,7 +4,17 @@ from datetime import datetime
 from uuid import UUID # Import UUID for type hinting if needed, though str is used for JSON
 
 # --- Nested Schemas for Clean Responses ---
+class AuthorPreview(BaseModel):
+    id: UUID
+    username: str
 
+    model_config = dict(from_attributes=True)
+
+class TagOut(BaseModel):
+    id: UUID
+    name: str
+
+    model_config = dict(from_attributes=True)
 # A generic summary for nested user data
 class UserSummary(BaseModel):
     id: UUID
@@ -57,33 +67,38 @@ class StoryFeedbackIn(BaseModel):
 
 # --- Output Schemas (Data going OUT from the API) ---
 
-# This is our single, definitive schema for any story response.
 class StoryOut(BaseModel):
-    # Core Fields with correct types
-    id: UUID # Correctly a string for UUID compatibility
-    user_id: UUID # Correctly a string
+    id: UUID
     title: str
     content: str
-    created_at: datetime
-    updated_at: datetime
-    
-    # All optional fields from the old PostOut, now included
-    header: Optional[str] = None
-    cover_image_url: Optional[HttpUrl] = None
-    is_published: bool
-    source: Optional[str] = None
-    
-    # Nested related objects using our summary schemas
-    user: UserSummary
-    tags: List[TagSummary] = []
-    
-    # Extra computed fields for the frontend
-    is_liked_by_user: bool = Field(False)
-    is_bookmarked_by_user: bool = Field(False)
-    
 
-    class Config:
-        from_attributes = True # Modern Pydantic V2 replacement for orm_mode
+    # DB fields
+    user_id: UUID
+    is_published: bool = False
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    is_liked_by_user: bool = False
+    is_bookmarked_by_user: bool = False
+    # Relations / projections (often optional in responses)
+    author: Optional[AuthorPreview] = None
+    tags: List[TagOut] = Field(default_factory=list)
+    header: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    source: str = "user"  
+    # Computed / analytics fields (default to zero/False)
+    likes_count: int = 0
+    bookmarks_count: int = 0
+    comments_count: int = 0
+    views_count: int = 0
+    flags_count: int = 0
+    is_flagged: bool = False
+    user: Optional[UserSummary] = None
+    # Generation / versioning
+    version: int = 1
+    draft_reason: Optional[str] = None
+
+    # Allow model attributes-to-schema and ignore unknown extras
+    model_config = dict(from_attributes=True, extra="ignore")
 
 # Schema for paginated lists of stories
 class StoryList(BaseModel):

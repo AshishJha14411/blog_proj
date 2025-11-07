@@ -12,7 +12,7 @@ from sqlalchemy import event, create_engine,text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.engine.url import make_url
 from sqlalchemy_utils import database_exists, create_database, drop_database
-from tests.factories import RoleFactory, UserFactory, StoryFactory, CommentFactory, LikeFactory, BookmarkFactory, FlagFactory, ModeratorFactory,PasswordResetTokenFactory
+from tests.factories import RoleFactory, UserFactory, StoryFactory, CommentFactory, LikeFactory, BookmarkFactory, FlagFactory, ModeratorFactory,PasswordResetTokenFactory,AdFactory, ClickFactory, ImpressionFactory, TagFactory
 from fastapi.testclient import TestClient
 from app.dependencies import get_mailer
 from alembic.config import Config
@@ -374,14 +374,14 @@ def setup_factories(db_session: Session):
     from tests.factories import BaseFactory
     # bind
     BaseFactory._meta.sqlalchemy_session = db_session
-    for F in (RoleFactory, UserFactory,StoryFactory,CommentFactory, LikeFactory, BookmarkFactory, FlagFactory, ModeratorFactory,PasswordResetTokenFactory):
+    for F in (RoleFactory, UserFactory,StoryFactory,CommentFactory, LikeFactory, BookmarkFactory, FlagFactory, ModeratorFactory,PasswordResetTokenFactory,AdFactory, ClickFactory, ImpressionFactory,TagFactory):
         F._meta.sqlalchemy_session = db_session
         F._meta.sqlalchemy_session_persistence = "flush"
     # unbind (keeps tests isolated)
     try:
         yield
     finally:
-        for F in (RoleFactory, UserFactory, StoryFactory, CommentFactory, LikeFactory, BookmarkFactory, FlagFactory, ModeratorFactory,PasswordResetTokenFactory):
+        for F in (RoleFactory, UserFactory, StoryFactory, CommentFactory, LikeFactory, BookmarkFactory, FlagFactory, ModeratorFactory,PasswordResetTokenFactory,AdFactory,ClickFactory, ImpressionFactory,TagFactory):
             F._meta.sqlalchemy_session = None
         BaseFactory._meta.sqlalchemy_session = None
     

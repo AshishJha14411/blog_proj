@@ -178,33 +178,55 @@ def verify_email(token:str, db: Session) -> MessageResponse:
 
 
 def verify_otp(data: VerifyOtpRequest, db: Session) -> MessageResponse:
-    #filter by email
+    # 1) Find the user by email
     user = db.query(User).filter_by(email=data.email).first()
     if not user:
         raise HTTPException(
-            status_code = status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="User not Found"
         )
-        
-    otp = {
-        db.query(OTPVerification).filter_by(user_id=user.id, otp_code=data.otp_code, used = False).first()
-    }
-    if not otp or otp.expires_at < datetime.utcnow():
+
+    # 2) Get the most recent, unused OTP entry for this user
+    otp = (
+        db.query(OTPVerification)
+        .filter(OTPVerification.user_id == user.id, OTPVerification.used.is_(False))
+        .order_by(OTPVerification.expires_at.desc())
+        .first()
+    )
+
+    # 3) Validate existence, expiry, and the code via hash-verify
+    if (
+        not otp
+        or otp.expires_at < datetime.utcnow()
+        or not verify_password(data.otp_code, otp.otp_code)  # compare raw vs hashed
+    ):
         raise HTTPException(
-            status_code = status.HTTP_400_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP"
         )
-    otp.used =True
+
+    # 4) Mark used, set user's flag, persist
+    otp.used = True
     user.is_otp_verified = True
     db.commit()
+
     return MessageResponse(message="OTP verified successfully")
 
-def update_profile(current: User,data: UserUpdate,db: Session) -> User:
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(current, field,value)
+def update_profile(current: User, data: UserUpdate, db: Session) -> User:
+    # Include fields the caller explicitly provided and ignore Nones
+    payload = data.model_dump(exclude_none=True)   # <- key change
+
+    # (Optional) if you prefer to also accept explicitly-set None for nullable fields,
+    # use: payload = data.model_dump(exclude_unset=True)
+
+    for field, value in payload.items():
+        setattr(current, field, value)
+
+    db.add(current)   # harmless if already in-session; ensures tracked
     db.commit()
     db.refresh(current)
     return current
+
 
 def change_password(current:User, data:PasswordChangeRequest, hasher, db:Session):
     if not hasher.verify(data.old_password, current.password_hash):
