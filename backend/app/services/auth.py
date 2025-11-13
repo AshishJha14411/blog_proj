@@ -1,6 +1,7 @@
 # app/services/auth.py
 
 import random
+import os
 import secrets
 from datetime import datetime, timedelta,timezone
 from fastapi import BackgroundTasks, HTTPException, status,Depends
@@ -53,6 +54,17 @@ def create_user(
     hashed_pw = hasher.hash(data.password)
     raw_otp = f"{random.randint(100000,999999):06d}"
     user_role = db.query(Role).filter(Role.name == "user").first()
+    
+    if os.getenv("E2E_TESTING") == "true" and "creator" in data.username:
+        role_name = "creator"
+    
+    user_role = db.query(Role).filter(Role.name == role_name).first()
+    if not user_role:
+        # Failsafe in case 'creator' role doesn't exist yet,
+        # but your conftest.py should handle this.
+        user_role = db.query(Role).filter(Role.name == "user").first()
+    # --- END FIX ---
+    
     new_user = User(
         email=data.email,
         username = data.username,

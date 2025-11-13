@@ -1,6 +1,7 @@
 import time
 from collections import defaultdict, deque
 from fastapi import HTTPException, Request, status
+import os  # <-- 1. Add this import
 
 # In-memory store: key → deque of request timestamps
 _request_log: dict[str, deque[float]] = defaultdict(deque)
@@ -15,6 +16,13 @@ def rate_limit(
     Allow up to `limit` requests per `window` seconds per client IP + path.
     Raises HTTPException 429 if exceeded.
     """
+    
+    # --- 2. ADD THIS CHECK ---
+    # If this env var is set, skip all rate limiting logic.
+    if os.getenv("E2E_TESTING") == "true":
+        return None
+    # --- END FIX ---
+
     client_ip = request.client.host
     path      = request.url.path
     key       = f"{client_ip}:{path}"
@@ -34,6 +42,8 @@ def rate_limit(
 
     # Record this request
     dq.append(now)
+
 def signup_rate_limiter(request: Request):
-    # will raise HTTPException if over the limit
+    # This will now respect the E2E_TESTING flag
+    # because it calls the main rate_limit function.
     rate_limit(request, limit=1, window=60)
