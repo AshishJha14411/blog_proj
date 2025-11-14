@@ -54,15 +54,20 @@ def create_user(
     hashed_pw = hasher.hash(data.password)
     raw_otp = f"{random.randint(100000,999999):06d}"
     user_role = db.query(Role).filter(Role.name == "user").first()
-    
+    role_name = "user"
     if os.getenv("E2E_TESTING") == "true" and "creator" in data.username:
         role_name = "creator"
     
     user_role = db.query(Role).filter(Role.name == role_name).first()
     if not user_role:
-        # Failsafe in case 'creator' role doesn't exist yet,
-        # but your conftest.py should handle this.
         user_role = db.query(Role).filter(Role.name == "user").first()
+        # If 'user' role is also missing, your seed fixture is broken,
+        # but this will prevent a 500 error.
+        if not user_role:
+             raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Critical: Role '{role_name}' not found."
+            )
     # --- END FIX ---
     
     new_user = User(
