@@ -45,7 +45,7 @@ it('shows Login/Signup in the Navbar when logged out', () => {
     cy.get('a[href="/profile"]').should('not.exist');
     
     // This line (which was failing) will now correctly pass.
-    // cy.get('button').contains('Log Out').should('not.exist');
+    cy.contains('button', 'Log Out').should('not.exist');
   });
 
   it('allows a user to log in and updates the Navbar', () => {
