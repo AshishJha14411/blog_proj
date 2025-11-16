@@ -5,12 +5,6 @@ class Settings(BaseSettings):
     # TEST_DB_BASE: str
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    # PGHOST=str = str(os.getenv('ep-withered-hill-a1z14jet.ap-southeast-1.aws.neon.tech'))
-    # PGDATABASE=str = str(os.getenv('neondb'))
-    # PGUSER=str = str(os.getenv('test_db'))
-    # PGPASSWORD= str = str(os.getenv('npg_BcSLfR4doV9h'))
-    # PGSSLMODE= str = str(os.getenv('require'))
-    # PGCHANNELBINDING= str = str(os.getenv('require'))
     PGHOST: str
     PGDATABASE: str
     PGUSER: str
@@ -23,7 +17,9 @@ class Settings(BaseSettings):
     MAIL_PASSWORD: str
     MAIL_FROM: str
     MAIL_FROM_NAME: str
-
+    ADMIN_USERNAME:str
+    ADMIN_EMAIL:str
+    ADMIN_PASSWORD:str
     FRONTEND_URL: str  # e.g. "https://yourdomain.com"
     CLOUDINARY_CLOUD_NAME: str
     CLOUDINARY_API_KEY: str

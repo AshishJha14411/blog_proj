@@ -7,7 +7,9 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest"
+    "test": "vitest",
+    "e2e:chrome": "cypress run --browser chrome"
+
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.4",
