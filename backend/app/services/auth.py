@@ -326,7 +326,7 @@ def refresh_access(db: Session, data: RefreshTokenRequest) -> tuple[User, TokenP
         if is_blacklisted:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked. Please log in again.")
         
-    except (PyJWTError, HTTPException) as e:
+    except (JWTError, HTTPException) as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token") from e
 
     user = db.query(User).get(payload.get("user_id"))

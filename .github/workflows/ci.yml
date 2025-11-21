@@ -1,8 +1,8 @@
-name: "Quill & Code CI"
+name: "Quill & Code CI/CD"
 
 on:
   push:
-    branches: [ "main", "testBranch" ] # Runs on pushes to these branches
+    branches: [ "main", "testBranch" ]
   pull_request:
     branches: [ "main" ]
 
@@ -14,7 +14,6 @@ jobs:
     name: "Backend Tests"
     runs-on: ubuntu-latest
     
-    # Create a temporary Postgres DB just for this test job
     services:
       postgres:
         image: postgres:16-alpine
@@ -24,7 +23,6 @@ jobs:
           POSTGRES_DB: test_db
         ports:
           - 5432:5432
-        # Wait until DB is healthy before starting tests
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -39,7 +37,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # Caches pip packages to speed up future runs
+          cache: 'pip'
 
       - name: Install Dependencies
         run: |
@@ -48,6 +46,7 @@ jobs:
 
       - name: Run Pytest
         env:
+          # Real Test Config
           DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db"
           SECRET_KEY: "testing_secret_key"
           JWT_SECRET_KEY: "testing_jwt_secret_key"
@@ -57,32 +56,31 @@ jobs:
           ADMIN_PASSWORD: "test_admin_password"
           E2E_TESTING: "true"
           
-          # --- DUMMY VALUES (To satisfy Pydantic validation) ---
+          # Dummy Config (Required by Pydantic validation)
           PGHOST: "localhost"
           PGDATABASE: "test_db"
           PGUSER: "test_user"
           PGPASSWORD: "test_password"
           PGSSLMODE: "disable"
           PGCHANNELBINDING: "disable"
-          
           MAIL_SERVER: "smtp.example.com"
           MAIL_PORT: "587"
           MAIL_USERNAME: "user"
           MAIL_PASSWORD: "password"
           MAIL_FROM: "noreply@example.com"
           MAIL_FROM_NAME: "Test App"
-          
           FRONTEND_URL: "http://localhost:3000"
-          
           CLOUDINARY_CLOUD_NAME: "dummy_cloud"
           CLOUDINARY_API_KEY: "12345"
           CLOUDINARY_API_SECRET: "abcdef"
+          
         run: |
           cd backend
-          # Run migrations first (to ensure schema is valid)
+          # Run migrations first
           alembic upgrade head
-          # Run tests
+          # Run unit and integration tests
           pytest -v -m "not e2e"
+
 
   # ------------------------------------------------------------------
   # JOB 2: FRONTEND TESTS (Unit & Component)
@@ -108,15 +106,15 @@ jobs:
       - name: Run Vitest
         run: npm test --prefix frontend -- --run
 
+
   # ------------------------------------------------------------------
   # JOB 3: E2E TESTS (Cypress)
   # ------------------------------------------------------------------
   e2e-tests:
     name: "E2E Tests (Cypress)"
     runs-on: ubuntu-latest
-    needs: [backend-tests, frontend-tests] # Only run if unit tests pass
+    needs: [backend-tests, frontend-tests] # Wait for others to pass
 
-    # We need the DB service again for the full stack
     services:
       postgres:
         image: postgres:16-alpine
@@ -151,11 +149,12 @@ jobs:
 
       - name: Install Backend Deps
         run: pip install -r backend/requirements.txt
-
+      
       - name: Install Frontend Deps
         run: npm ci --prefix frontend
 
       - name: Start Backend Server
+        # COPY THE SAME ENV BLOCK FROM BACKEND TESTS HERE
         env:
           DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db"
           SECRET_KEY: "testing_secret_key"
@@ -165,21 +164,37 @@ jobs:
           ADMIN_EMAIL: "admin@system.local"
           ADMIN_PASSWORD: "test_admin_password"
           E2E_TESTING: "true"
+          
+          # Dummy Config
+          PGHOST: "localhost"
+          PGDATABASE: "test_db"
+          PGUSER: "test_user"
+          PGPASSWORD: "test_password"
+          PGSSLMODE: "disable"
+          PGCHANNELBINDING: "disable"
+          MAIL_SERVER: "smtp.example.com"
+          MAIL_PORT: "587"
+          MAIL_USERNAME: "user"
+          MAIL_PASSWORD: "password"
+          MAIL_FROM: "noreply@example.com"
+          MAIL_FROM_NAME: "Test App"
+          FRONTEND_URL: "http://localhost:3000"
+          CLOUDINARY_CLOUD_NAME: "dummy_cloud"
+          CLOUDINARY_API_KEY: "12345"
+          CLOUDINARY_API_SECRET: "abcdef"
+          
         run: |
           cd backend
-          # Initialize DB
           alembic upgrade head
           python -m app.seed
-          # Start Server in background
           uvicorn app.main:app --host 0.0.0.0 --port 8000 &
           echo "Backend starting..."
-          sleep 5 # Give it a moment to breathe
-
+          sleep 10
+      
       - name: Run Cypress
         uses: cypress-io/github-action@v6
         with:
           working-directory: frontend
-          # This automatically starts the frontend dev server for us!
           start: npm run dev
           wait-on: 'http://localhost:3000'
           wait-on-timeout: 120
