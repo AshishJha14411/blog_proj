@@ -9,7 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer
 from app.dependencies import get_db, get_password_hasher, get_mailer
-from jwt import PyJWTError
+from jose import JWTError
 from app.models.user import User
 from app.models.role import Role
 from app.schemas.auth import LoginRequest, RefreshTokenRequest, TokenPair,MessageResponse,VerifyOtpRequest,UserUpdate,PasswordChangeRequest,ForgotPasswordRequest, ResetPasswordRequest
@@ -154,25 +154,21 @@ def logout_user(db: Session, refresh_token: str):
     try:
         payload = decode_access_token(refresh_token)
         
-        # Ensure we are only blacklisting refresh tokens
         if payload.get("type") != "refresh":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid token type for logout.")
             
         jti = payload.get("jti")
         expires_at = datetime.fromtimestamp(payload.get("exp"), tz=timezone.utc)
         
-        # Check if already blacklisted
         is_blacklisted = db.query(TokenBlacklist).filter(TokenBlacklist.jti == jti).first()
         if is_blacklisted:
-            return # Silently succeed if already logged out
+            return
 
-        # Add the token's JTI to the blacklist
         blacklist_entry = TokenBlacklist(jti=jti, expires_at=expires_at)
         db.add(blacklist_entry)
         db.commit()
-    except PyJWTError:
-        # If the token is invalid/expired, we don't need to do anything.
-        # Silently pass to ensure logout always "succeeds" from the user's perspective.
+    except (JWTError, ValueError): # <-- CHANGE THIS (Catch jose error)
+        # If the token is invalid/expired/malformed, we silently succeed
         pass
     
     return {"message": "You have been successfully logged out"}
