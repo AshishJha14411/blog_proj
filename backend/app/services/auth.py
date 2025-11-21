@@ -90,11 +90,13 @@ def create_user(
     
     try:
         db.commit()
-    except Exception:
+    except Exception as e: # Capture the exception
         db.rollback()
+        # Log the real error (or include it in the detail for debugging)
+        print(f"Database commit failed: {e}") 
         raise HTTPException(
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error hashing password"
+            detail=f"Database error: {str(e)}" # Show the real error
         )
     # Email Verification
     db.refresh(new_user)

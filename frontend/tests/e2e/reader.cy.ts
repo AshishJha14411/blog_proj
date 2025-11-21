@@ -1,27 +1,36 @@
 // tests/e2e/reader.cy.ts
 
-// --- (Test Data setup is the same) ---
+// Helper to ensure unique usernames even if tests run in parallel or quickly
+const randomId = () => Math.floor(Math.random() * 1000000);
+
+// This is our "reader" user for this test file
 const readerUser = {
-  username: `e2e_reader_${Date.now()}`,
-  email: `e2e_reader_${Date.now()}@example.com`,
+  username: `e2e_reader_${Date.now()}_${randomId()}`,
+  email: `e2e_reader_${Date.now()}_${randomId()}@example.com`,
   password: 'Password123!',
 };
+
+// This is the "creator" user who will post the story
 const creatorUser = {
-  username: `e2e_creator_${Date.now()}`,
-  email: `e2e_creator_${Date.now()}@example.com`,
+  // Includes "creator" in the name so the backend auto-promotes them
+  username: `e2e_creator_${Date.now()}_${randomId()}`,
+  email: `e2e_creator_${Date.now()}_${randomId()}@example.com`,
   password: 'Password123!',
 };
+
+// Make the story title unique too, just in case
 const storyToCommentOn = {
-  title: 'E2E Story for Commenting',
+  title: `E2E Story for Commenting ${randomId()}`,
   content: 'This is the story we will comment on.',
   tags: ['e2e', 'comments'],
 };
-const testComment = 'This is a brand new E2E test comment!';
+
+const testComment = `This is a brand new E2E test comment! ${randomId()}`;
 
 // --- E2E Test Suite ---
 describe('Full-Stack Reader E2E Journey', () => {
 
-  // --- (before() hook is the same) ---
+  // Before all tests, create the two users we need
   before(() => {
     // 1. Create the reader
     cy.request({
@@ -34,11 +43,11 @@ describe('Full-Stack Reader E2E Journey', () => {
     cy.request({
       method: 'POST',
       url: 'http://localhost:8000/auth/signup', 
-      body: { ...creatorUser }, // Backend rule will auto-promote
+      body: { ...creatorUser }, 
     }).its('status').should('eq', 201);
   });
 
-  // --- (beforeEach() hook is the same) ---
+  // Before each test, we'll log in as the 'reader' AND create the story
   beforeEach(() => {
     // 1. Log in as the READER via API
     cy.request({
@@ -64,7 +73,7 @@ describe('Full-Stack Reader E2E Journey', () => {
     });
     
     // 3. ARRANGE: Create the story to be commented on
-    // We log in as the CREATOR and create one
+    // We temporarily log in as the CREATOR via API to create one
     cy.request({
       method: 'POST',
       url: 'http://localhost:8000/auth/login',
@@ -74,10 +83,14 @@ describe('Full-Stack Reader E2E Journey', () => {
       },
     }).then((response) => {
       const token = response.body.access_token;
+      
+      // Now, as the creator, post a story
       cy.request({
         method: 'POST',
         url: 'http://localhost:8000/stories/',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
         body: {
           title: storyToCommentOn.title,
           content: storyToCommentOn.content,
@@ -86,7 +99,6 @@ describe('Full-Stack Reader E2E Journey', () => {
         },
       }).its('status').should('eq', 201);
     });
-
   }); // End beforeEach
 
   it('can navigate to stories, add a comment, and see it appear', () => {
@@ -98,10 +110,8 @@ describe('Full-Stack Reader E2E Journey', () => {
     // 2. Wait for hydration (by finding the 'Profile' link)
     cy.get('a[href="/profile"]', { timeout: 10000 }).should('be.visible');
     
-    // --- THIS IS THE FIX ---
     // 3. Click the "Stories" link in the Navbar
     cy.get('a[href="/userStory"]').contains('Stories').click();
-    // --- END FIX ---
     
     // 4. Wait for the stories page to load and find the card
     cy.url().should('include', '/userStory');
@@ -117,7 +127,7 @@ describe('Full-Stack Reader E2E Journey', () => {
     cy.get('button').contains('Post Comment').click();
 
     // --- ASSERT ---
-    // 7. The new comment should appear
+    // 7. The new comment should appear in the CommentList
     cy.contains(testComment, { timeout: 10000 }).should('be.visible');
 
     // 8. The form should be cleared
