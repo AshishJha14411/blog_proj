@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # 1. The Backend Service
+  backend:
+    build:
+      context: ./backend  # Looks for the 'Dockerfile' in the 'backend' folder
+    ports:
+      - "8000:8080" # Maps your laptop's port 8000 to the container's port 8080
+    volumes:
+      # This is for hot-reloading. It syncs your local 'app' folder
+      # with the 'app' folder inside the container.
+      - ./backend/app:/app/app
+    environment:
+      # This is the "key" to the database.
+      # It tells FastAPI to connect to the 'db' service on port 5432.
+      DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
+      
+      # We load all other secrets from your .env file
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY} # Make sure this matches your .env
+      
+      # Admin credentials for the seed script
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    env_file:
+      - backend/.env # Loads the .env file from the backend folder
+    depends_on:
+      db: # Tells this service to wait until the 'db' service is healthy
+        condition: service_healthy
+
+  # 2. The Frontend Service
+  frontend:
+    build:
+      context: ./frontend # Looks for the 'Dockerfile' in the 'frontend' folder
+      target: dev        # Tells Docker to build the 'dev' stage (for hot-reloading)
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # This "un-mounts" node_modules, using the one inside the container
+    environment:
+      # Tells Next.js to talk to the 'backend' service
+      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+      # This is required for Next.js hot-reloading to work inside Docker
+      WATCHPACK_POLLING: "true"
+
+  # 3. The Database Service
+  db:
+    image: postgres:16 # Use the official PostgreSQL 16 image
+    ports:
+      - "5432:5432" # Maps your laptop's port 5432 to the container's 5432
+    environment:
+      # This is the "bank". It creates the DB and credentials.
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: test_db
+    volumes:
+      # This saves your database data to a 'volume' on your computer,
+      # so your data is still there even if you stop/remove the container.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # This check ensures the 'backend' won't start until the DB is ready
+      test: ["CMD-SHELL", "pg_isready -U test_user -d test_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# This tells Docker to create the named volume on your hard drive
+volumes:
+  postgres_data:
