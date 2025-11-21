@@ -1,0 +1,169 @@
+name: "Quill & Code CI"
+
+on:
+  push:
+    branches: [ "main", "testBranch" ] # Runs on pushes to these branches
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # ------------------------------------------------------------------
+  # JOB 1: BACKEND TESTS (Unit & Integration)
+  # ------------------------------------------------------------------
+  backend-tests:
+    name: "Backend Tests"
+    runs-on: ubuntu-latest
+    
+    # Create a temporary Postgres DB just for this test job
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        # Wait until DB is healthy before starting tests
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip' # Caches pip packages to speed up future runs
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Pytest
+        env:
+          # Point to the service container we created above
+          DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db"
+          # Dummy secrets for testing
+          SECRET_KEY: "testing_secret_key"
+          JWT_SECRET_KEY: "testing_jwt_secret_key"
+          GOOGLE_API_KEY: "dummy_google_key"
+          # Admin Seed Config
+          ADMIN_USERNAME: "superadmin"
+          ADMIN_EMAIL: "admin@system.local"
+          ADMIN_PASSWORD: "test_admin_password"
+          # Flags
+          E2E_TESTING: "true"
+        run: |
+          cd backend
+          # Run migrations first (to ensure schema is valid)
+          alembic upgrade head
+          # Run tests
+          pytest -v -m "not e2e"
+
+  # ------------------------------------------------------------------
+  # JOB 2: FRONTEND TESTS (Unit & Component)
+  # ------------------------------------------------------------------
+  frontend-tests:
+    name: "Frontend Tests"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci --prefix frontend
+
+      - name: Run Vitest
+        run: npm test --prefix frontend -- --run
+
+  # ------------------------------------------------------------------
+  # JOB 3: E2E TESTS (Cypress)
+  # ------------------------------------------------------------------
+  e2e-tests:
+    name: "E2E Tests (Cypress)"
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests] # Only run if unit tests pass
+
+    # We need the DB service again for the full stack
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Backend Deps
+        run: pip install -r backend/requirements.txt
+
+      - name: Install Frontend Deps
+        run: npm ci --prefix frontend
+
+      - name: Start Backend Server
+        env:
+          DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db"
+          SECRET_KEY: "testing_secret_key"
+          JWT_SECRET_KEY: "testing_jwt_secret_key"
+          GOOGLE_API_KEY: "dummy_google_key"
+          ADMIN_USERNAME: "superadmin"
+          ADMIN_EMAIL: "admin@system.local"
+          ADMIN_PASSWORD: "test_admin_password"
+          E2E_TESTING: "true"
+        run: |
+          cd backend
+          # Initialize DB
+          alembic upgrade head
+          python -m app.seed
+          # Start Server in background
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          echo "Backend starting..."
+          sleep 5 # Give it a moment to breathe
+
+      - name: Run Cypress
+        uses: cypress-io/github-action@v6
+        with:
+          working-directory: frontend
+          # This automatically starts the frontend dev server for us!
+          start: npm run dev
+          wait-on: 'http://localhost:3000'
+          wait-on-timeout: 120
+          browser: chrome
