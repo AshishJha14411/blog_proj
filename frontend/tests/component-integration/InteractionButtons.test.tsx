@@ -94,7 +94,7 @@ describe('InteractionButtons Component', () => {
     // ARRANGE: Mock the API to REJECT slowly
     mockToggleLike.mockImplementation(() => {
       return new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('API Failed')), 50);
+        setTimeout(() => reject(new Error('API Failed')), 200);
       });
     });
 

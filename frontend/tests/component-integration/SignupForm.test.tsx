@@ -44,6 +44,7 @@ describe('SignupForm', () => {
         email: 'test@example.com',
         username: 'testuser',
         password: 'testpass123',
+        message: '', // <--- ADD THIS
       });
       expect(mockPush).toHaveBeenCalledWith('/');
     });

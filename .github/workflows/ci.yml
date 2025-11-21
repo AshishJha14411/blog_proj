@@ -48,18 +48,35 @@ jobs:
 
       - name: Run Pytest
         env:
-          # Point to the service container we created above
           DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db"
-          # Dummy secrets for testing
           SECRET_KEY: "testing_secret_key"
           JWT_SECRET_KEY: "testing_jwt_secret_key"
           GOOGLE_API_KEY: "dummy_google_key"
-          # Admin Seed Config
           ADMIN_USERNAME: "superadmin"
           ADMIN_EMAIL: "admin@system.local"
           ADMIN_PASSWORD: "test_admin_password"
-          # Flags
           E2E_TESTING: "true"
+          
+          # --- DUMMY VALUES (To satisfy Pydantic validation) ---
+          PGHOST: "localhost"
+          PGDATABASE: "test_db"
+          PGUSER: "test_user"
+          PGPASSWORD: "test_password"
+          PGSSLMODE: "disable"
+          PGCHANNELBINDING: "disable"
+          
+          MAIL_SERVER: "smtp.example.com"
+          MAIL_PORT: "587"
+          MAIL_USERNAME: "user"
+          MAIL_PASSWORD: "password"
+          MAIL_FROM: "noreply@example.com"
+          MAIL_FROM_NAME: "Test App"
+          
+          FRONTEND_URL: "http://localhost:3000"
+          
+          CLOUDINARY_CLOUD_NAME: "dummy_cloud"
+          CLOUDINARY_API_KEY: "12345"
+          CLOUDINARY_API_SECRET: "abcdef"
         run: |
           cd backend
           # Run migrations first (to ensure schema is valid)
