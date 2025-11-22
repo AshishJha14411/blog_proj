@@ -1,11 +1,11 @@
-// src/app/posts/page.tsx  (your AllPostsPage)
 import { getAllPosts } from '@/services/postService';
 import PostCard from '@/components/common/PostCard';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
+import nextDynamic from 'next/dynamic';
 import React from 'react';
+export const dynamic = 'force-dynamic';
 // Client-only AdSlot inside a Server Component
-const AdSlot = dynamic(() => import('@/components/ads/AdSlot'), { ssr: true });
+const AdSlot = nextDynamic(() => import('@/components/ads/AdSlot'), { ssr: true });
 
 export default async function AllPostsPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const limit = 10;

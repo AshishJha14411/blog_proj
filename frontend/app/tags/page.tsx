@@ -1,4 +1,5 @@
 
+export const dynamic = 'force-dynamic';
 import { getAllTags } from '@/services/tagService';
 import Link from 'next/link';
 import React from 'react';

@@ -6,12 +6,6 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     JWT_SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    PGHOST: str
-    PGDATABASE: str
-    PGUSER: str
-    PGPASSWORD: str
-    PGSSLMODE: str
-    PGCHANNELBINDING: str
     MAIL_SERVER: str
     MAIL_PORT: int
     MAIL_USERNAME: str

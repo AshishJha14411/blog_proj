@@ -3,31 +3,52 @@ import sys
 import logging
 from dotenv import load_dotenv
 
-# --- 1. LOAD ENV VARS FIRST ---
-# This finds the .env file in the current directory (backend/)
-# and loads it into the environment *before* we import config.
-# This makes sure settings.DATABASE_URL is available.
+# 1. Load Env variables first
 load_dotenv()
 
-# --- 2. NOW, IMPORT FROM APP ---
-# These imports will now succeed because pydantic-settings
-# can find the variables in the environment.
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from app.core.config import settings # <-- This is the goal
+from app.core.config import settings
 from app.models.role import Role
 from app.models.user import User
 from app.dependencies import get_password_hasher
 
-# Set up a simple logger
+# --- ALEMBIC IMPORTS ---
+from alembic.config import Config
+from alembic import command
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_db_session() -> Session:
-    """Creates a new, independent database session."""
+def get_db_url():
+    # Prefer the Direct URL for setup tasks (Migrations & Seeding)
+    return os.getenv("MIGRATION_DATABASE_URL") or settings.DATABASE_URL
+
+def run_migrations():
+    """Runs Alembic migrations programmatically."""
+    logger.info("🚀 Starting Database Migrations...")
     try:
-        # Use the settings object as the Single Source of Truth
-        engine = create_engine(settings.DATABASE_URL)
+        # Create Alembic configuration object
+        # We point it to the alembic.ini file in the backend root
+        alembic_cfg = Config("alembic.ini")
+        
+        # FORCE the connection string. This overrides alembic.ini and env.py
+        # This guarantees we use the Direct Connection.
+        db_url = get_db_url()
+        alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+        
+        # Run the upgrade
+        command.upgrade(alembic_cfg, "head")
+        logger.info("✅ Migrations applied successfully.")
+    except Exception as e:
+        logger.error(f"❌ Migration failed: {e}")
+        sys.exit(1)
+
+def get_db_session() -> Session:
+    """Creates a new database session."""
+    try:
+        # Use the same Direct URL for seeding
+        engine = create_engine(get_db_url())
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         return SessionLocal()
     except Exception as e:
@@ -35,7 +56,7 @@ def get_db_session() -> Session:
         sys.exit(1)
 
 def seed_data():
-    logger.info("Starting data seeding...")
+    logger.info("🌱 Starting data seeding...")
     db = get_db_session()
     
     try:
@@ -54,8 +75,7 @@ def seed_data():
         db.commit()
         logger.info("Roles seeded successfully.")
 
-        # --- 2. SEED SUPERADMIN FROM SETTINGS ---
-        # We read the admin details *directly* from the settings object
+        # --- 2. SEED SUPERADMIN ---
         admin = db.query(User).filter(User.username == settings.ADMIN_USERNAME).first()
         if not admin:
             logger.info(f"Creating superadmin user: {settings.ADMIN_USERNAME}")
@@ -74,14 +94,19 @@ def seed_data():
         else:
             logger.info("Superadmin user already exists.")
             
-        logger.info("Data seeding complete.")
+        logger.info("✅ Data seeding complete.")
 
     except Exception as e:
-        logger.error(f"An error occurred during seeding: {e}")
+        logger.error(f"❌ An error occurred during seeding: {e}")
         db.rollback()
-        raise
+        sys.exit(1) # Fail hard if seeding fails
     finally:
         db.close()
 
 if __name__ == "__main__":
+    # Run Migrations FIRST
+    run_migrations()
+    # THEN Run Seeds
     seed_data()
+
+
