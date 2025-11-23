@@ -3,7 +3,8 @@ import { Tag } from './tagService'
 import { useAuthStore } from '@/stores/authStore'
 // import { headers } from 'next/headers';
 import axiosInstance from '@/lib/axios'
-const API_URL = 'http://localhost:8000/stories'
+const API_ROOT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = `${API_ROOT}/stories`;
 
 const getAuthHeaders = () => {
     const accessToken = useAuthStore.getState().accessToken;

@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-
+from app.core.config import settings
 # Routers
 from app.routes.auth import router as auth_router
 from app.routes.story import router as posts_router
@@ -47,10 +47,20 @@ app = FastAPI()
 # Make middleware log to "app" logger (ensure your middleware accepts logger_name or uses "app" internally)
 app.add_middleware(LoggingMiddleware)  # if middleware uses logging.getLogger("app")
 
-# CORS
+frontend_url = settings.FRONTEND_URL.rstrip("/") if settings.FRONTEND_URL else ""
+
+# Define allowed origins
+origins = [
+    "http://localhost:3000",  # Always allow local dev
+]
+
+# Only add the production frontend URL if it's set
+if frontend_url:
+    origins.append(frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=origins,  # <-- Use the dynamic list
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

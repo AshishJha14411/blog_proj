@@ -21,7 +21,7 @@ from alembic import command
 # 0) LOCK TEST ENV BEFORE IMPORTING APP
 # ------------------------------------------------------------------
 # A real test DB, distinct from dev DB. Per-worker DB supported (xdist).
-BASE_TEST_DB = os.getenv("TEST_DB_BASE", "postgresql://test_db:npg_BcSLfR4doV9h@ep-withered-hill-a1z14jet.ap-southeast-1.aws.neon.tech/neondb?sslmode=require")
+BASE_TEST_DB = os.getenv("TEST_DB_BASE", "postgresql://neondb_owner:npg_n1B5bOyugWFL@ep-flat-hill-a1sx47lq.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'")
 
 # Signal “test mode” to app (tweak cookie flags, disable background sends, etc.)
 os.environ.setdefault("ENV", "test")
