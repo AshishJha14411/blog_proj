@@ -17,7 +17,9 @@ interface TagUpdate {
     name?: string,
     description?: string
 }
-const API_URL = 'http://localhost:8000/tags'
+const API_ROOT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = `${API_ROOT}/tags`;
+// const API_URL = 'http://localhost:8000/tags'
 
 export const getAllTags = async(): Promise<{ tags: Tag[] }> => {
     const response = await axiosInstance.get(API_URL)

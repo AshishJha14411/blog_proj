@@ -1,6 +1,6 @@
 // tests/e2e/reader.cy.ts
 
-const randomId = () => Math.floor(Math.random() * 1000000);
+const randomId = () => `${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`;
 
 describe('Full-Stack Reader E2E Journey', () => {
   

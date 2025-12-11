@@ -5,8 +5,11 @@ interface ToggleResponse {
     liked?: boolean;
     bookmarked: boolean
 }
+const API_ROOT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = `${API_ROOT}/stories`;
+// const API_URL = 'http://127.0.0.1:8000/stories'
 
-const API_URL = 'http://127.0.0.1:8000/stories'
+
 export const toggleLike = async(postId:string): Promise<ToggleResponse> => {
     const response = await axiosInstance.post(`${API_URL}/${postId}/like`)
     return response.data
