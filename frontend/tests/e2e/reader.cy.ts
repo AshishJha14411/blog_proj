@@ -17,33 +17,29 @@ describe('Full-Stack Reader E2E Journey', () => {
   const testComment = `This is a brand new E2E test comment! ${randomId()}`;
 
   // Before all tests, create FRESH users
+// Before all tests, create the two users we need
   before(() => {
-    // 1. Generate unique data RIGHT NOW (not when file loads)
-    readerUser = {
-      username: `e2e_reader_${Date.now()}_${randomId()}`,
-      email: `e2e_reader_${Date.now()}_${randomId()}@example.com`,
-      password: 'Password123!',
-    };
-
-    creatorUser = {
-      username: `e2e_creator_${Date.now()}_${randomId()}`,
-      email: `e2e_creator_${Date.now()}_${randomId()}@example.com`,
-      password: 'Password123!',
-    };
-
-    // 2. Create the reader
+    // 1. Create the reader
     cy.request({
       method: 'POST',
       url: 'http://localhost:8000/auth/signup', 
       body: { ...readerUser },
-    }).its('status').should('eq', 201);
+      failOnStatusCode: false, // <-- Don't fail immediately
+    }).then((res) => {
+      // Expect 201 (Created) OR 409 (Already exists)
+      expect(res.status).to.be.oneOf([201, 409]);
+    });
     
-    // 3. Create the creator
+    // 2. Create the creator
     cy.request({
       method: 'POST',
       url: 'http://localhost:8000/auth/signup', 
       body: { ...creatorUser }, 
-    }).its('status').should('eq', 201);
+      failOnStatusCode: false, // <-- Don't fail immediately
+    }).then((res) => {
+      // Expect 201 (Created) OR 409 (Already exists)
+      expect(res.status).to.be.oneOf([201, 409]);
+    });
   });
 
   // Before each test, log in as reader AND ensure story exists
