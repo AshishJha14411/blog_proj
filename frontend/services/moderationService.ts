@@ -14,7 +14,7 @@ export interface ModQueueParams {
 export interface QueueItem {
   id: string;
   title: string;
-  user: { id: number; username: string };
+  user: { id: string; username: string };
   status?: StoryStatus;
   is_flagged: boolean;
   created_at: string;
@@ -37,12 +37,12 @@ export async function fetchModPost(id: string) {
   return data;
 }
 
-export async function approvePost(id: number, note?: string) {
+export async function approvePost(id: string, note?: string) {
   const { data } = await api.post(`/moderation/stories/${id}/approve`, { note });
   return data;
 }
 
-export async function rejectPost(id: number, reason?: string) {
+export async function rejectPost(id: string, reason?: string) {
   const { data } = await api.post(`/moderation/stories/${id}/reject`, { reason });
   return data;
 }

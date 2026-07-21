@@ -185,7 +185,7 @@ async function onSubmit(e: React.FormEvent) {
           </button>
           <button
             type="button"
-            onClick={() => router.push("/posts")}
+            onClick={() => router.push("/myposts")}
             className="rounded-md border px-4 py-2"
           >
             Cancel

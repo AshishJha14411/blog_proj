@@ -60,8 +60,12 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
+      // F4: accessToken is DELIBERATELY excluded from partialize — it stays
+      // in memory only. On page reload, AuthInitializer uses the HttpOnly
+      // refresh_token cookie to mint a fresh one via /auth/refresh. This
+      // means an XSS-injected script can't `localStorage.getItem` a token
+      // it can walk out the door with.
       partialize: (state) => ({
-        accessToken: state.accessToken,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
         recentlyLoggedOut: state.recentlyLoggedOut, // persist the guard

@@ -12,6 +12,7 @@ from app.models.stories import Story, StoryStatus
 from app.models.comment import Comment
 from app.models.flag import Flag
 from app.schemas.moderation import (
+    FlagCreate,
     FlagOut,
     FlagList,
     FlagResolveRequest,
@@ -91,7 +92,7 @@ def _set_flag_resolver(flag: Flag, user_id: uuid.UUID):
 @user_action_router.post("/stories/{story_id}/flag", status_code=status.HTTP_201_CREATED)
 def flag_story(
     story_id: UUID_t,
-    payload: dict,  # validate reason after we confirm story exists (fixes 404 vs 422)
+    data: FlagCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -99,14 +100,10 @@ def flag_story(
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
-    reason = (payload.get("reason") or "").strip()
-    if not reason:
-        raise HTTPException(status_code=422, detail="reason is required")
-
     flag = Flag(
         flagged_by_user_id=user.id,
         story_id=story.id,
-        reason=reason,
+        reason=data.reason.strip(),
         status="open",
     )
     db.add(flag)
@@ -118,7 +115,7 @@ def flag_story(
 @user_action_router.post("/comments/{comment_id}/flag", status_code=status.HTTP_201_CREATED)
 def flag_comment(
     comment_id: UUID_t,
-    payload: dict,
+    data: FlagCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -126,14 +123,10 @@ def flag_comment(
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
 
-    reason = (payload.get("reason") or "").strip()
-    if not reason:
-        raise HTTPException(status_code=422, detail="reason is required")
-
     flag = Flag(
         flagged_by_user_id=user.id,
         comment_id=comment.id,
-        reason=reason,
+        reason=data.reason.strip(),
         status="open",
     )
     db.add(flag)

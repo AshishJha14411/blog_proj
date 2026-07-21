@@ -177,6 +177,53 @@ def test_generate_story_flagged_sets_generated_and_flag(db_session: Session, mon
     assert created.is_flagged is True
 
 
+# --- LLM error paths (previously untested — every one used to 500) ---
+
+def test_generate_story_502_on_empty_llm_response(db_session: Session, monkeypatch):
+    """Empty text from the LLM must surface as a 502, not silently persist as a story."""
+    creator = _allow_creator()
+
+    monkeypatch.setattr(
+        story_service._llm, "generate",
+        lambda *a, **k: ("   ", "msg_empty"),
+    )
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        story_service.generate_story(
+            db_session, StoryGenerateIn(prompt="anything"), creator,
+        )
+    assert exc.value.status_code == 502
+
+
+def test_generate_story_bubbles_llm_error(db_session: Session, monkeypatch):
+    """A raised LLMError from the adapter must reach the caller — the retry
+    wrapper should not swallow it after exhausting attempts."""
+    creator = _allow_creator()
+
+    from app.llm.adapter import LLMError
+
+    def boom(*a, **k):
+        raise LLMError("provider down")
+
+    monkeypatch.setattr(story_service._llm, "generate", boom)
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    with pytest.raises(LLMError):
+        story_service.generate_story(
+            db_session, StoryGenerateIn(prompt="anything"), creator,
+        )
+
+
+def test_generate_story_prompt_cap_is_enforced_at_schema_layer():
+    """Schema-level cap keeps 25k-char prompts out of the pipeline entirely."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        StoryGenerateIn(prompt="x" * 25_000)
+
+
 # -----------------------
 # LISTING / FILTERS
 # -----------------------
@@ -278,6 +325,53 @@ def test_get_story_details_404_rules_and_flags(db_session: Session, monkeypatch)
     out3 = story_service.get_story_details(db_session, s.id, author, _ReqStub())
     assert out3.is_liked_by_user is True
     assert out3.is_bookmarked_by_user is True
+
+
+def test_get_story_details_404_when_soft_deleted(db_session: Session, monkeypatch):
+    """W5 regression: a soft-deleted story must 404 even to its own author,
+    otherwise unpublish/delete-then-share becomes a data leak."""
+    author = _allow_creator()
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    s = story_service.create_story(
+        db_session,
+        StoryCreate(title="doomed", content="body", tag_names=["x"], is_published=True),
+        author,
+    )
+    s.deleted_at = datetime.utcnow()
+    db_session.commit()
+
+    with pytest.raises(Exception) as exc:
+        story_service.get_story_details(db_session, s.id, author, _ReqStub())
+    from fastapi import HTTPException
+    assert isinstance(exc.value, HTTPException) and exc.value.status_code == 404
+
+
+def test_get_all_stories_hides_soft_deleted(db_session: Session, monkeypatch):
+    """Soft-deleted stories must not appear in the public list either."""
+    author = _allow_creator()
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    live = story_service.create_story(
+        db_session,
+        StoryCreate(title="alive", content="body", tag_names=[], is_published=True),
+        author,
+    )
+    dead = story_service.create_story(
+        db_session,
+        StoryCreate(title="gone", content="body", tag_names=[], is_published=True),
+        author,
+    )
+    dead.deleted_at = datetime.utcnow()
+    db_session.commit()
+
+    total, items = story_service.get_all_stories(
+        db_session, limit=10, offset=0, tag=None, author_id=None, current_user=None,
+    )
+    ids = {s.id for s in items}
+    assert live.id in ids
+    assert dead.id not in ids
+    assert total == 1
 
 
 # -----------------------

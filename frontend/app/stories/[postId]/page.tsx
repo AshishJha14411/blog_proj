@@ -62,7 +62,8 @@ export default function EditAIStoryPage() {
     setErr(null);
     setRegenBusy(true);
     try {
-      const updated = await sendFeedback(Number(postId), feedback);
+      // F8: sendFeedback expects a UUID *string* — Number() would produce NaN.
+      const updated = await sendFeedback(postId, feedback);
       setPreviewHTML(updated.content || "");
       setPost((old) => (old ? { ...old, version: updated.version } : updated as any));
       setFeedback("");

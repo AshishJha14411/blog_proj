@@ -21,7 +21,7 @@ from alembic import command
 # 0) LOCK TEST ENV BEFORE IMPORTING APP
 # ------------------------------------------------------------------
 # A real test DB, distinct from dev DB. Per-worker DB supported (xdist).
-BASE_TEST_DB = os.getenv("TEST_DB_BASE", "postgresql://neondb_owner:npg_n1B5bOyugWFL@ep-flat-hill-a1sx47lq.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'")
+BASE_TEST_DB = os.getenv("TEST_DB_BASE", "postgresql://test_user:test_password@localhost:5432/quill_test")
 
 # Signal “test mode” to app (tweak cookie flags, disable background sends, etc.)
 os.environ.setdefault("ENV", "test")
@@ -56,7 +56,7 @@ def _db_url_for_worker(base_url: str, worker_id: str | None) -> str:
     else:
         url = url.set(database=dbname)
 
-    if not (url.database and (url.database.startswith("quill_test") or url.database == "neondb")):
+    if not (url.database and url.database.startswith("quill_test")):
         raise RuntimeError(f"Refusing to run tests on non-test DB: {url.database}")
     return str(url)
 

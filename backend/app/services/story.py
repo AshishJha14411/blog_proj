@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 import uuid
 from fastapi import HTTPException, status, Request
-from sqlalchemy.orm import Session , joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 # Import all necessary models
 from app.models.like import Like
 from app.models.bookmarks import Bookmark
@@ -118,39 +118,87 @@ def generate_story(db: Session, data: StoryGenerateIn, current_user: User) -> St
     return new_story
 
 # --- READING STORIES ---
+def _populate_interaction_flags(
+    db: Session,
+    items: List[Story],
+    current_user: Optional[User],
+) -> None:
+    """Batch-load like/bookmark flags for a page of stories: 2 queries, not 2N."""
+    if not current_user or not items:
+        for s in items:
+            s.is_liked_by_user = False
+            s.is_bookmarked_by_user = False
+        return
+
+    story_ids = [s.id for s in items]
+    liked = {
+        sid for (sid,) in db.query(Like.story_id).filter(
+            Like.user_id == current_user.id,
+            Like.story_id.in_(story_ids),
+        )
+    }
+    marked = {
+        sid for (sid,) in db.query(Bookmark.story_id).filter(
+            Bookmark.user_id == current_user.id,
+            Bookmark.story_id.in_(story_ids),
+        )
+    }
+    for s in items:
+        s.is_liked_by_user = s.id in liked
+        s.is_bookmarked_by_user = s.id in marked
+
+
 def get_all_stories(db: Session, limit: int, offset: int, tag: Optional[str], author_id: Optional[uuid.UUID], current_user: Optional[User]) -> Tuple[int, List[Story]]:
-    query = db.query(Story).filter(Story.deleted_at == None)
+    # W7: eager-load user + tags so `StoryOut.model_validate(item)` doesn't lazy-load per row.
+    query = (
+        db.query(Story)
+        .options(joinedload(Story.user), selectinload(Story.tags))
+        .filter(Story.deleted_at.is_(None))
+    )
     if not (current_user and current_user.role.name in ("moderator", "superadmin")):
         query = query.filter(Story.is_published == True)
     if author_id:
         query = query.filter(Story.user_id == author_id)
     if tag:
         query = query.join(Story.tags).filter(Tag.name == tag)
-        
+
     total = query.count()
     items = query.order_by(Story.created_at.desc()).offset(offset).limit(limit).all()
+    _populate_interaction_flags(db, items, current_user)
     return total, items
 
 def get_user_stories(db: Session, user: User, limit: int, offset: int) -> Tuple[int, List[Story]]:
-    query = db.query(Story).filter(Story.user_id == user.id, Story.deleted_at == None)
+    query = (
+        db.query(Story)
+        .options(joinedload(Story.user), selectinload(Story.tags))
+        .filter(Story.user_id == user.id, Story.deleted_at.is_(None))
+    )
     total = query.count()
     items = query.order_by(Story.created_at.desc()).offset(offset).limit(limit).all()
+    _populate_interaction_flags(db, items, user)
     return total, items
 
 def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[User], request: Request) -> Story:
-    story = db.query(Story).options(joinedload(Story.tags)).filter(Story.id == story_id, Story.deleted_at == None).first()
+    story = (
+        db.query(Story)
+        .options(joinedload(Story.user), selectinload(Story.tags))
+        .filter(Story.id == story_id, Story.deleted_at.is_(None))
+        .first()
+    )
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
-    
+
     if not story.is_published and not (current_user and (story.user_id == current_user.id or current_user.role.name in ("moderator", "superadmin"))):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
-    
+
+    # W7: like/bookmark flags — run each query once, not twice.
     if current_user:
         story.is_liked_by_user = db.query(Like).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
         story.is_bookmarked_by_user = db.query(Bookmark).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
     else:
         story.is_liked_by_user = False
         story.is_bookmarked_by_user = False
+
     # Log the view
     db.add(ViewHistory(
         story_id=story.id, user_id=current_user.id if current_user else None,
@@ -158,14 +206,6 @@ def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[U
     ))
     db.commit()
 
-    # Dynamically set like/bookmark status for the response schema
-    if current_user:
-        story.is_liked_by_user = db.query(Like).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
-        story.is_bookmarked_by_user = db.query(Bookmark).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
-    else:
-        story.is_liked_by_user = False
-        story.is_bookmarked_by_user = False
-        
     return StoryOut(
         id=str(story.id),
         title=story.title,

@@ -15,12 +15,12 @@ services:
       # This is the "key" to the database.
       # It tells FastAPI to connect to the 'db' service on port 5432.
       DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
-      
+
       # We load all other secrets from your .env file
       SECRET_KEY: ${SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY} # Make sure this matches your .env
-      
+
       # Admin credentials for the seed script
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
@@ -30,6 +30,14 @@ services:
     depends_on:
       db: # Tells this service to wait until the 'db' service is healthy
         condition: service_healthy
+    # Hits the /healthz endpoint added in Round 3; frontend gates on this
+    # so the first request doesn't race an unmigrated backend.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz', timeout=2).status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   # 2. The Frontend Service
   frontend:
@@ -46,6 +54,9 @@ services:
       NEXT_PUBLIC_API_URL: "http://localhost:8000"
       # This is required for Next.js hot-reloading to work inside Docker
       WATCHPACK_POLLING: "true"
+    depends_on:
+      backend:
+        condition: service_healthy
 
   # 3. The Database Service
   db:

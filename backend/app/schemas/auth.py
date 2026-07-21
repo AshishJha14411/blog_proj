@@ -1,11 +1,20 @@
-from pydantic import BaseModel, EmailStr, constr
+from pydantic import BaseModel, EmailStr, constr, Field
 from typing import Optional
 import uuid
+
+
+# Reused across signup/update — usernames and bios should have concrete caps
+# so the DB never sees megabyte-sized inputs.
+UsernameStr = constr(strip_whitespace=True, min_length=3, max_length=50)
+PasswordStr = constr(min_length=8, max_length=128)
+BioStr = constr(max_length=500)
+
+
 class SignUpRequest(BaseModel):
     email: EmailStr
-    username: str
-    password: str
-    profile_image_url: Optional[str] = None
+    username: UsernameStr
+    password: PasswordStr
+    profile_image_url: Optional[constr(max_length=2048)] = None
     social_links: Optional[dict] = None
 
 class SignUpResponse(BaseModel):
@@ -21,8 +30,8 @@ class RoleOut(BaseModel):
         from_attributes = True
 # ------------LOGIN------------- #
 class LoginRequest(BaseModel):
-    username: constr(min_length=3)
-    password: constr(min_length=8)
+    username: UsernameStr
+    password: PasswordStr
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
@@ -55,20 +64,20 @@ class UserProfile(BaseModel):
         from_attributes = True
 
 class UserUpdate(BaseModel):
-    profile_image_url: Optional[str] = None
-    bio: Optional[str] = None
+    profile_image_url: Optional[constr(max_length=2048)] = None
+    bio: Optional[BioStr] = None
     social_links: Optional[dict] = None
 
 class PasswordChangeRequest(BaseModel):
-    old_password: str
-    new_password: constr(min_length=8)
-    
+    old_password: PasswordStr
+    new_password: PasswordStr
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
 class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: constr(min_length=8)
+    token: constr(min_length=10, max_length=256)
+    new_password: PasswordStr
     
 class GoogleLoginRequest(BaseModel):
     code: str  

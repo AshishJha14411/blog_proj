@@ -1,18 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  // 1. Ignore ESLint errors during build (so "unused vars" don't crash deploy)
+  // Compile errors and lint failures must not ship to production.
+  // Run `npm run build` locally after pulling to surface any remaining issues.
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
-
-  // 2. Ignore TypeScript errors during build (so "any" types don't crash deploy)
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
 
-  // 3. Ensure your environment variable for the backend is respected
+  // Ensure your environment variable for the backend is respected
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
   },

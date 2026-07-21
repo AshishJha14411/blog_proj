@@ -32,7 +32,7 @@ def list_ads(
     offset: int = Query(0, ge=0)
 ):
     """Lists all active ads with pagination."""
-    total, items = ads.list_ads(db, limit, offset)
+    total, items = ads.list_ads(db, limit, offset, active_only=True)
     return AdList(total=total, limit=limit, offset=offset, items=items)
 
 @public_router.get("/{ad_id}", response_model=AdOut)

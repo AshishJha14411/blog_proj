@@ -1,8 +1,15 @@
 # app/utils/db_logger.py
-import logging, threading
+import hashlib
+import logging
+import threading
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.error_logs import ErrorLog  # ensure this model/table exists
+
+# ErrorLog.message is String(255) — respect the column length or the insert
+# itself fails on Postgres (which was silently breaking every DB error log).
+_MESSAGE_MAX = 255
+
 
 class DatabaseLogHandler(logging.Handler):
     def __init__(self, level=logging.ERROR):
@@ -19,10 +26,9 @@ class DatabaseLogHandler(logging.Handler):
             if record.name.startswith("sqlalchemy"):
                 return
 
-            # message
-            msg = record.getMessage()
-            if len(msg) > 1000:
-                msg = msg[:1000] + "…"
+            # message — truncated to the DB column width, no ellipsis so the hash stays stable
+            raw_msg = record.getMessage()
+            msg = raw_msg[:_MESSAGE_MAX]
 
             # traceback
             tb = ""
@@ -39,20 +45,36 @@ class DatabaseLogHandler(logging.Handler):
                 except Exception:
                     ctx = {"_repr": str(ctx)}
 
+            # Fingerprint identical errors together (Sentry-style aggregation)
+            # so error_hash uniqueness holds and we can increment `count` instead.
+            error_hash = hashlib.sha256(
+                f"{record.levelname}|{record.name}|{raw_msg}".encode("utf-8")
+            ).hexdigest()
+
             db: Session = SessionLocal()
             try:
-                error_log = ErrorLog(
-                    level=record.levelname,
-                    message=msg,
-                    traceback=tb,
-                    request_context=ctx,
+                existing = (
+                    db.query(ErrorLog)
+                    .filter(ErrorLog.error_hash == error_hash)
+                    .first()
                 )
-                db.add(error_log)
+                if existing:
+                    existing.count = (existing.count or 0) + 1
+                else:
+                    db.add(
+                        ErrorLog(
+                            level=record.levelname,
+                            message=msg,
+                            traceback=tb,
+                            request_context=ctx,
+                            error_hash=error_hash,
+                        )
+                    )
                 db.commit()
-            except Exception as e:
+            except Exception:
+                # Rollback and swallow — a unique-race between workers falls
+                # here harmlessly; anything else can't recurse via logging.
                 db.rollback()
-                # last resort: avoid recursion by NOT logging via logging module here
-                print(f"[DB-LOGGING-FAIL] {e} while writing: level={record.levelname} msg={msg!r}")
             finally:
                 db.close()
         finally:

@@ -47,9 +47,21 @@ def delete_ad(db: Session, ad_id: uuid.UUID) -> bool:
     db.commit()
     return True
 
-def list_ads(db: Session, limit: int, offset: int) -> Tuple[int, List[Ads]]:
-    """Lists all ads for the admin panel."""
+def list_ads(
+    db: Session,
+    limit: int,
+    offset: int,
+    active_only: bool = False,
+) -> Tuple[int, List[Ads]]:
+    """Lists ads. Public callers should set active_only=True."""
     query = db.query(Ads)
+    if active_only:
+        now = datetime.utcnow()
+        query = query.filter(
+            Ads.active.is_(True),
+            (Ads.start_at.is_(None)) | (Ads.start_at <= now),
+            (Ads.end_at.is_(None)) | (Ads.end_at >= now),
+        )
     total = query.count()
     items = query.order_by(Ads.created_at.desc()).offset(offset).limit(limit).all()
     return total, items

@@ -8,6 +8,25 @@ on:
 
 jobs:
   # ------------------------------------------------------------------
+  # JOB 0: SECRET SCANNING
+  # Fails the build if committed source contains anything gitleaks
+  # recognises as a credential. Was added after a live Neon password
+  # leaked into tests/conftest.py — do not remove this gate lightly.
+  # ------------------------------------------------------------------
+  gitleaks:
+    name: "Secret Scan (gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # gitleaks needs full history for the diff scan
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ------------------------------------------------------------------
   # JOB 1: BACKEND TESTS (Unit & Integration)
   # ------------------------------------------------------------------
   backend-tests:
@@ -157,7 +176,7 @@ jobs:
       - name: Start Backend Server
         # COPY THE SAME ENV BLOCK FROM BACKEND TESTS HERE
         env:
-          DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db"
+          DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db?sslmode=disable"
           SECRET_KEY: "testing_secret_key"
           JWT_SECRET_KEY: "testing_jwt_secret_key"
           GOOGLE_API_KEY: "dummy_google_key"
@@ -165,7 +184,8 @@ jobs:
           ADMIN_EMAIL: "admin@system.local"
           ADMIN_PASSWORD: "test_admin_password"
           E2E_TESTING: "true"
-          
+          ENVIRONMENT: "test"
+
           # Dummy Config
           PGHOST: "localhost"
           PGDATABASE: "test_db"
@@ -183,20 +203,58 @@ jobs:
           CLOUDINARY_CLOUD_NAME: "dummy_cloud"
           CLOUDINARY_API_KEY: "12345"
           CLOUDINARY_API_SECRET: "abcdef"
-          
+
         run: |
           cd backend
           alembic upgrade head
           python -m app.seed
-          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-          echo "Backend starting..."
-          sleep 10
-      
+          # Log to a file so we can dump it on failure; capture PID so a
+          # crashed uvicorn is caught instead of Cypress timing out later.
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+          echo $! > backend.pid
+          echo "Backend starting (pid=$(cat backend.pid))..."
+          # Poll /healthz for up to 60s.
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/healthz > /dev/null; then
+              echo "Backend is up."
+              exit 0
+            fi
+            if ! kill -0 "$(cat backend.pid)" 2>/dev/null; then
+              echo "::error::Backend crashed before becoming ready."
+              echo "==== backend.log ===="
+              cat backend.log
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::Backend never became ready within 60s."
+          echo "==== backend.log ===="
+          cat backend.log
+          exit 1
+
       - name: Run Cypress
         uses: cypress-io/github-action@v6
+        env:
+          NEXT_PUBLIC_API_URL: "http://localhost:8000"
         with:
           working-directory: frontend
           start: npm run dev
           wait-on: 'http://localhost:3000'
           wait-on-timeout: 120
           browser: chrome
+
+      - name: Upload Cypress artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-artifacts
+          path: |
+            frontend/cypress/videos
+            frontend/cypress/screenshots
+          if-no-files-found: ignore
+
+      - name: Dump backend log on failure
+        if: failure()
+        run: |
+          echo "==== backend/backend.log ===="
+          cat backend/backend.log || true

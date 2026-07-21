@@ -1,7 +1,7 @@
 // src/app/change-password/page.tsx
 
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { changePassword } from '@/services/authService';
 import AuthCard from '@/components/ui/AuthCard';
@@ -18,6 +18,14 @@ export default function ChangePasswordPage() {
     const [loading, setLoading] = useState(false);
     const router = useRouter();
 
+    const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (redirectTimer.current) clearTimeout(redirectTimer.current);
+        };
+    }, []);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (newPassword !== confirmPassword) {
@@ -30,9 +38,9 @@ export default function ChangePasswordPage() {
         try {
             await changePassword({ old_password: oldPassword, new_password: newPassword });
             setSuccess('Password changed successfully! Redirecting to your profile...');
-            setTimeout(() => router.push('/profile'), 2000);
-        } catch (err) {
-            setError(err.message || 'Failed to change password. Check your old password.');
+            redirectTimer.current = setTimeout(() => router.push('/profile'), 2000);
+        } catch (err: any) {
+            setError(err?.message || 'Failed to change password. Check your old password.');
         } finally {
             setLoading(false);
         }

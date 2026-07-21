@@ -22,7 +22,7 @@ from app.core.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-IS_DEV = settings.FRONTEND_URL.startswith("http://")
+IS_DEV = settings.IS_DEV
 
 COOKIE_SECURE   = not IS_DEV                # Secure only in prod
 COOKIE_SAMESITE = "none" if not IS_DEV else "lax"
@@ -100,10 +100,7 @@ def logout(
         token_to_revoke = authorization.split(" ", 1)[1].strip()
 
     if token_to_revoke:
-        print("[logout] blacklisting refresh token")
         logout_user(db, token_to_revoke)
-    else:
-        print("[logout] no refresh token provided via cookie or header")
 
     clear_refresh_cookie(response)  # expire the cookie
     return MessageResponse(message="You have been successfully logged out.")
@@ -124,9 +121,10 @@ def refresh_token(
         # If blacklisted/invalid, clear cookie so you don’t keep retrying a dead token
         clear_refresh_cookie(response)
         raise
-    # We don't set a new refresh cookie unless we're rotating tokens
-    # set_refresh_cookie(response, new_tokens.refresh_token)
-    
+
+    # Rotation: emit the freshly-minted refresh token as the new HttpOnly cookie.
+    set_refresh_cookie(response, new_tokens.refresh_token)
+
     return LoginResponse(
         access_token=new_tokens.access_token,
         refresh_token=new_tokens.refresh_token,

@@ -38,7 +38,6 @@ def list_my_notifications(db: Session, user_id: UUID, limit: int, offset: int, u
         q = q.filter(Notification.is_read.is_(False))
 
     total = q.with_entities(func.count()).scalar()  # or q.count()
-    print(f"User Id is {user_id}")
     items = (
         q.options(selectinload(Notification.actor))   # <-- if you’ll expose actor
          .order_by(desc(Notification.created_at))
@@ -46,7 +45,6 @@ def list_my_notifications(db: Session, user_id: UUID, limit: int, offset: int, u
          .limit(limit)
          .all()
     )
-    print(f"from the service of notification {total}, {items}")
     return total, items
 
 

@@ -23,7 +23,8 @@ def rate_limit(
         return None
     # --- END FIX ---
 
-    client_ip = request.client.host
+    # `request.client` can be None (e.g. ASGI transport with no peer info).
+    client_ip = request.client.host if request.client else "unknown"
     path      = request.url.path
     key       = f"{client_ip}:{path}"
     now       = time.time()

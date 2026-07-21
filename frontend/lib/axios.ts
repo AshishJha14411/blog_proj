@@ -3,12 +3,13 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const axiosInstance = axios.create({
   baseURL: API_URL,
   // --- CRITICAL: This tells axios to send cookies with every request ---
   withCredentials: true,
+  timeout: 30000,               // free-tier cold starts can take ~20s
 });
 
 // --- Attach access token on every request (This part is still correct) ---
@@ -36,6 +37,7 @@ async function refreshAccessToken(): Promise<string | null> {
     try {
       const resp = await axios.post(`${API_URL}/auth/refresh`, {}, {
         withCredentials: true, // Be explicit for this call
+        timeout: 30000,        // raw axios stays outside the interceptor chain
       });
       
       const newAccess = resp.data?.access_token as string | undefined;
@@ -61,6 +63,13 @@ axiosInstance.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest: any = error.config;
+
+    // One retry on network error / timeout (free-tier cold starts).
+    if (!error.response && originalRequest && !originalRequest._networkRetry) {
+      originalRequest._networkRetry = true;
+      await new Promise((r) => setTimeout(r, 2000));
+      return axiosInstance(originalRequest);
+    }
 
     if (!error.response || error.response.status !== 401) {
       return Promise.reject(error);

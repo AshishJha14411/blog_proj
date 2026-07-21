@@ -2,45 +2,44 @@
 
 import { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { getMe } from '@/services/authService';
+import { refreshSession } from '@/services/authService';
 
 /**
- * A client-side-only component that runs once on app load to validate the user's session.
+ * Runs once on app load to bootstrap the in-memory access token from the
+ * HttpOnly refresh_token cookie. Since F4, accessToken is not persisted to
+ * localStorage — so after a page reload we always start with `accessToken=null`
+ * and need to mint a fresh one before the UI can make authenticated calls.
  */
 export function AuthInitializer() {
-  // We use a ref to ensure this effect runs only once, even in React's strict mode.
+  // A ref keeps this effect from running twice under React strict mode.
   const hasRun = useRef(false);
 
   useEffect(() => {
-    if (hasRun.current) {
-      return;
-    }
+    if (hasRun.current) return;
     hasRun.current = true;
 
-    const validateSession = async () => {
-      // 1. Get the current token and user from the store
-      const { accessToken, user } = useAuthStore.getState();
-      const logout = useAuthStore.getState().logout;
+    const state = useAuthStore.getState();
+    // Nothing persisted → nothing to rehydrate.
+    if (!state.isAuthenticated) return;
+    // Already have a token in memory (e.g. same tab after login) → skip.
+    if (state.accessToken) return;
+    // User explicitly logged out; don't immediately re-authenticate.
+    if (state.recentlyLoggedOut) return;
 
-      // 2. If there's a token but no user object, it's a new session. Let's get the user.
-      if (accessToken && !user) {
-        console.log("Validating session on app load...");
-        try {
-          // 3. Call the /me endpoint
-          const userData = await getMe(accessToken);
-          // If successful, update the store with the fresh user data
-          useAuthStore.setState({ user: userData });
-        } catch (error) {
-          // 4. If it fails, we have a "ghost session". Clear it.
-          console.error("Session validation failed. Logging out.");
-          logout();
-        }
+    (async () => {
+      try {
+        const { access_token, user } = await refreshSession();
+        useAuthStore.getState().login({
+          accessToken: access_token,
+          refreshToken: '',
+          user,
+        });
+      } catch {
+        // Refresh cookie is gone/expired — treat this session as ended.
+        useAuthStore.getState().logout();
       }
-    };
-
-    validateSession();
+    })();
   }, []);
 
-  // This component renders nothing. It's purely for logic.
   return null;
 }

@@ -90,6 +90,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 def read_root():
     return {"msg": "It works!"}
 
+
+@app.get("/healthz")
+def healthz():
+    """Liveness probe for CI / docker-compose healthchecks."""
+    return {"status": "ok"}
+
 # Routers
 app.include_router(auth_router)
 app.include_router(posts_router)

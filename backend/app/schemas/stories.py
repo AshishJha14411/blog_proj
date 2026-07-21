@@ -1,7 +1,17 @@
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, HttpUrl, Field, constr
 from typing import List, Optional, Literal
 from datetime import datetime
 from uuid import UUID # Import UUID for type hinting if needed, though str is used for JSON
+
+
+# Length caps: keep DB rows reasonable and prevent oversized-input DoS.
+# Bumping any of these is a real product decision, not a lint fix.
+StoryTitle = constr(strip_whitespace=True, min_length=1, max_length=300)
+StoryHeader = constr(strip_whitespace=True, max_length=500)
+StoryContent = constr(min_length=1, max_length=100_000)
+TagName = constr(strip_whitespace=True, min_length=1, max_length=50)
+PromptText = constr(strip_whitespace=True, min_length=1, max_length=20_000)
+FeedbackText = constr(strip_whitespace=True, min_length=1, max_length=5_000)
 
 # --- Nested Schemas for Clean Responses ---
 class AuthorPreview(BaseModel):
@@ -33,37 +43,37 @@ class TagSummary(BaseModel):
 
 # Schema for a user MANUALLY creating a story
 class StoryCreate(BaseModel):
-    title: str
-    header: Optional[str] = None
-    content: str
+    title: StoryTitle
+    header: Optional[StoryHeader] = None
+    content: StoryContent
     cover_image_url: Optional[HttpUrl] = None
-    tag_names: List[str] = [] # Changed from `tags` for clarity
+    tag_names: List[TagName] = Field(default_factory=list, max_length=20)
     is_published: bool = True
 
 class StoryUpdate(BaseModel):
-    title: Optional[str] = None
-    header: Optional[str] = None
-    content: Optional[str] = None
+    title: Optional[StoryTitle] = None
+    header: Optional[StoryHeader] = None
+    content: Optional[StoryContent] = None
     cover_image_url: Optional[HttpUrl] = None
-    tag_names: Optional[List[str]] = None # Changed from `tags`
+    tag_names: Optional[List[TagName]] = Field(default=None, max_length=20)
     is_published: Optional[bool] = None
 
 # --- AI Generation Input Schemas (Added Back) ---
 
 class StoryGenerateIn(BaseModel):
-    title: Optional[str] = None
-    summary: Optional[str] = None        # short description/blurb the user writes
-    prompt: str                          # theme/instructions
-    genre: Optional[str] = None
-    tone: Optional[str] = None
+    title: Optional[StoryTitle] = None
+    summary: Optional[StoryHeader] = None  # short description/blurb the user writes
+    prompt: PromptText                     # theme/instructions
+    genre: Optional[constr(max_length=100)] = None
+    tone: Optional[constr(max_length=100)] = None
     length_label: Optional[Literal["flash","short","medium","long"]] = None
     publish_now: bool = False
-    temperature: Optional[float] = 0.8
-    model_name: Optional[str] = "gpt-4o-mini"
+    temperature: Optional[float] = Field(default=0.8, ge=0.0, le=2.0)
+    model_name: Optional[constr(max_length=100)] = "gpt-4o-mini"
     cover_image_url: Optional[HttpUrl] = None
 
 class StoryFeedbackIn(BaseModel):
-    feedback: str
+    feedback: FeedbackText
 
 # --- Output Schemas (Data going OUT from the API) ---
 

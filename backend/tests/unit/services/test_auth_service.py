@@ -96,6 +96,30 @@ def test_login_user_not_found(db_session: Session):
         auth.login_user(db_session, data, get_password_hasher())
 
 
+def test_login_disabled_user_rejected(db_session: Session):
+    """A disabled user must not be able to obtain new tokens through login.
+
+    login_user currently returns tokens on password match — this test locks
+    in the correct behavior: disabled accounts should fail authentication.
+    """
+    hasher = get_password_hasher()
+    pw = "password123"
+    user = UserFactory(
+        username="disabled_user",
+        password_hash=hasher.hash(pw),
+        is_disabled=True,
+    )
+    login = LoginRequest(username="disabled_user", password=pw)
+
+    with pytest.raises(HTTPException) as exc_info:
+        auth.login_user(db=db_session, data=login, hasher=hasher)
+    # Either 401 (auth) or 403 (blocked) is acceptable; must NOT be 200.
+    assert exc_info.value.status_code in (401, 403)
+    # Sanity: no successful side-effect. `user` still exists in the DB.
+    db_session.refresh(user)
+    assert user.is_disabled is True
+
+
 # ----------------------------------------------------------------------
 # LOGOUT
 # ----------------------------------------------------------------------
@@ -229,6 +253,32 @@ def test_refresh_access_success(db_session: Session):
     user_out, tokens = auth.refresh_access(db_session, req)
     assert user_out.id == user.id
     assert "access_token" in tokens.model_dump()
+
+
+def test_refresh_access_rotates_refresh_token(db_session: Session):
+    """W4.3: /auth/refresh must issue a *new* refresh token (rotation) and
+    invalidate the old one. Replaying the old token after rotation must fail."""
+    user = UserFactory()
+    old_refresh = create_refresh_token({"user_id": str(user.id), "type": "refresh"})
+
+    _, tokens = auth.refresh_access(db_session, RefreshTokenRequest(refresh_token=old_refresh))
+
+    # The rotated token must be different from the one we sent in.
+    assert tokens.refresh_token != old_refresh
+
+    # And the old token's JTI must now sit in the blacklist so a replay 401s.
+    old_payload = auth.decode_access_token(old_refresh)
+    revoked = (
+        db_session.query(TokenBlacklist)
+        .filter(TokenBlacklist.jti == old_payload["jti"])
+        .first()
+    )
+    assert revoked is not None, "Old refresh JTI must be blacklisted after rotation"
+
+    # Replay attempt with the old token now fails.
+    with pytest.raises(HTTPException) as exc_info:
+        auth.refresh_access(db_session, RefreshTokenRequest(refresh_token=old_refresh))
+    assert exc_info.value.status_code == 401
 
 
 def test_refresh_access_blacklisted(db_session: Session):

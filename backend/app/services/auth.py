@@ -1,5 +1,6 @@
 # app/services/auth.py
 
+import logging
 import random
 import os
 import secrets
@@ -7,6 +8,8 @@ from datetime import datetime, timedelta,timezone
 from fastapi import BackgroundTasks, HTTPException, status,Depends
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 from fastapi.security import OAuth2PasswordBearer
 from app.dependencies import get_db, get_password_hasher, get_mailer
 from jose import JWTError
@@ -50,7 +53,6 @@ def create_user(
             detail="Email or username already registered"
         )
     # Create user
-    print(f"Password recieved is: {data}")
     hashed_pw = hasher.hash(data.password)
     raw_otp = f"{random.randint(100000,999999):06d}"
     user_role = db.query(Role).filter(Role.name == "user").first()
@@ -90,13 +92,12 @@ def create_user(
     
     try:
         db.commit()
-    except Exception as e: # Capture the exception
+    except Exception:
         db.rollback()
-        # Log the real error (or include it in the detail for debugging)
-        print(f"Database commit failed: {e}") 
+        logger.exception("signup commit failed")
         raise HTTPException(
-            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}" # Show the real error
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
         )
     # Email Verification
     db.refresh(new_user)
@@ -141,6 +142,13 @@ def login_user(db:Session, data:LoginRequest,hasher) -> TokenPair:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail = "Invalid username or password"
+        )
+    if user.is_disabled:
+        # Disabled users must never receive tokens — same 401 shape as bad
+        # creds so we don't leak account-state to an attacker probing logins.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
         )
     access = create_access_token({"user_id": str(user.id)})
     refresh = create_refresh_token({"user_id": str(user.id)}, expires_delta=timedelta(days=14))
@@ -337,10 +345,20 @@ def refresh_access(db: Session, data: RefreshTokenRequest) -> tuple[User, TokenP
 
     # Issue a new access token
     new_access_token = create_access_token({"user_id": str(user.id)})
-    
-    # For now, we reuse the refresh token. A more advanced pattern is to rotate it.
-    tokens = TokenPair(access_token=new_access_token, refresh_token=data.refresh_token)
-    
+
+    # Rotate: revoke the old refresh token, mint a fresh one so a replayed
+    # old token 401s (limits blast radius + surfaces theft).
+    db.add(TokenBlacklist(
+        jti=jti,
+        expires_at=datetime.fromtimestamp(payload.get("exp"), tz=timezone.utc),
+    ))
+    db.commit()
+    new_refresh_token = create_refresh_token(
+        {"user_id": str(user.id)},
+        expires_delta=timedelta(days=14),
+    )
+    tokens = TokenPair(access_token=new_access_token, refresh_token=new_refresh_token)
+
     return user, tokens
 
 

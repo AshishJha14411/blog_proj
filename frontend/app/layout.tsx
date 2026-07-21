@@ -5,7 +5,7 @@ import "./globals.css";
 import Navbar from "@/components/common/Navbar";
 import Footer from "@/components/common/Footer";
 import { AuthInitializer } from "@/services/authInitializer";
-import { GoogleOAuthProvider } from "@react-oauth/google";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -20,12 +20,9 @@ export const metadata: Metadata = {
   title: "Quill & Code",
   description: "Created By Ashish Kr Jha",
 };
-// const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
-// if (!googleClientId) {
-//   console.error("FATAL: NEXT_PUBLIC_GOOGLE_CLIENT_ID is not defined in .env.local");
-//   // You could render an error page here in a real app
-// }
+// Google login uses the backend redirect flow (/auth/google/login → cookie →
+// /auth/callback → refreshSession()); GoogleOAuthProvider isn't needed.
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -36,12 +33,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {/* <GoogleOAuthProvider clientId={googleClientId!}> */}
-          <AuthInitializer />
-          <Navbar />
-          {children}
-          <Footer />
-        {/* </GoogleOAuthProvider> */}
+        <AuthInitializer />
+        <Navbar />
+        {children}
+        <Footer />
       </body>
     </html>
   );

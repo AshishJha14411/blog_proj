@@ -45,12 +45,12 @@ export default async function AllPostsPage({ searchParams }: { searchParams?: Re
       {/* Pagination */}
       <div className="mt-12 flex justify-center gap-4">
         {page > 1 && (
-          <Link href={`/posts?page=${page - 1}`} className="rounded-md bg-primary px-4 py-2 text-white">
+          <Link href={`/userStory?page=${page - 1}`} className="rounded-md bg-primary px-4 py-2 text-white">
             Previous
           </Link>
         )}
         {page < totalPages && (
-          <Link href={`/posts?page=${page + 1}`} className="rounded-md bg-primary px-4 py-2 text-white">
+          <Link href={`/userStory?page=${page + 1}`} className="rounded-md bg-primary px-4 py-2 text-white">
             Next
           </Link>
         )}

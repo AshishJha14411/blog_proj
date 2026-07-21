@@ -55,8 +55,12 @@ def flags_breakdown(db: Session = Depends(get_db)):
 
 
 @router.get("/moderation", response_model=ModerationLogs, status_code=status.HTTP_200_OK)
-def moderation_logs(db: Session = Depends(get_db)):
-    logs = get_moderation_logs(db)
+def moderation_logs(
+    limit: int = Query(50, gt=0, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    logs = get_moderation_logs(db, limit=limit, offset=offset)
     # Convert models -> schema
     items = [AuditLogOut.model_validate(log) for log in logs]
     return ModerationLogs(logs=items)

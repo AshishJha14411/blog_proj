@@ -27,11 +27,17 @@ export default function EditAIStoryPage() {
   const [previewHTML, setPreviewHTML] = useState<string>("");
 
   useEffect(() => {
+    // `router` is deliberately excluded from deps — Next's useRouter returns
+    // a new reference each render, which would re-fire this effect every
+    // parent re-render and re-fetch the post for nothing.
+    let cancelled = false;
     (async () => {
       try {
         const p = await getPostById(postId);
+        if (cancelled) return;
         if (p.source !== "ai") {
-          router.replace(`/posts/${postId}/edit`); 
+          // The /posts route was renamed to /userStory (W2 fix).
+          router.replace(`/userStory/${postId}/edit`);
           return;
         }
         setPost(p);
@@ -42,12 +48,14 @@ export default function EditAIStoryPage() {
         setLengthLabel((p.length_label as any) || "");
         setPreviewHTML(p.content || "");
       } catch (e: any) {
-        setErr(e?.response?.data?.detail || "Failed to load story.");
+        if (!cancelled) setErr(e?.response?.data?.detail || "Failed to load story.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [postId, router]);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postId]);
 
   const sanitizedPreview = useMemo(
     () => DOMPurify.sanitize(previewHTML || ""),
@@ -62,7 +70,8 @@ export default function EditAIStoryPage() {
     setErr(null);
     setRegenBusy(true);
     try {
-      const updated = await sendFeedback(Number(postId), feedback);
+      // F8: sendFeedback expects a UUID *string* — Number() would produce NaN.
+      const updated = await sendFeedback(postId, feedback);
       setPreviewHTML(updated.content || "");
       setPost((old) => (old ? { ...old, version: updated.version } : updated as any));
       setFeedback("");

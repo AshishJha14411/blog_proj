@@ -23,7 +23,16 @@ def _get_gemini_model(model_name: str):
     return _genai.GenerativeModel(model_name)
 
 class LLMError(RuntimeError):
-    pass
+    """Base LLM failure — includes retryable network/5xx cases."""
+
+
+class LLMRetryableError(LLMError):
+    """Only network/timeouts/5xx should live under this class."""
+
+
+# Cap the prompt size to keep token cost from blowing up on pathological inputs.
+_MAX_PROMPT_CHARS = 20_000
+
 
 class LLMAdapter:
     """
@@ -39,7 +48,8 @@ class LLMAdapter:
         reraise=True,
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
-        retry=retry_if_exception_type(LLMError),
+        # Only retry on the retryable subclass — bad key / quota / policy should fail fast.
+        retry=retry_if_exception_type(LLMRetryableError),
     )
     def generate(
         self,
@@ -54,6 +64,9 @@ class LLMAdapter:
         temperature = settings.LLM_TEMPERATURE if temperature is None else float(temperature)
         max_tokens = settings.LLM_MAX_TOKENS if max_tokens is None else int(max_tokens)
         timeout = settings.LLM_TIMEOUT if timeout is None else float(timeout)
+
+        if prompt and len(prompt) > _MAX_PROMPT_CHARS:
+            raise LLMError(f"Prompt too long: {len(prompt)} > {_MAX_PROMPT_CHARS}")
 
         if self.provider == "google":
             return self._generate_gemini(prompt, model, temperature, max_tokens, timeout)
@@ -71,11 +84,11 @@ class LLMAdapter:
                 "temperature": temperature,
                 "max_output_tokens": max_tokens,
             }
-            # Gemini Python SDK doesn’t expose a direct timeout per call; rely on HTTP default.
             resp = model_obj.generate_content(
                 prompt,
                 generation_config=generation_config,
                 safety_settings=None,  # keep defaults; you can add custom tuning here
+                request_options={"timeout": timeout},
             )
             # Extract text and a best-effort message id
             text = getattr(resp, "text", "") or ""

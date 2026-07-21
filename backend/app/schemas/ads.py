@@ -71,3 +71,6 @@ class AdServeOut(BaseModel):
 # For paginated lists in the admin panel
 class AdList(BaseModel):
     items: List[AdOut]
+    total: int = 0
+    limit: int = 20
+    offset: int = 0

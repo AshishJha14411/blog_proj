@@ -10,5 +10,13 @@ export function useModGuard() {
   const ready = isHydrated;
   const isMod = !!user && ["moderator", "superadmin"].includes(user.role?.name || "");
 
-  return { user, isAuthenticated, ready, isMod: ["moderator", "superadmin"].includes(user?.role?.name || "") };
+  // Redirect non-mods once hydration has resolved; otherwise the page would
+  // just render blank because the guard only *returned* a flag.
+  useEffect(() => {
+    if (ready && !isMod) {
+      router.replace("/");
+    }
+  }, [ready, isMod, router]);
+
+  return { user, isAuthenticated, ready, isMod };
 }

@@ -1,6 +1,7 @@
 # tests/unit/services/test_admin_service.py
 import uuid
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 import app.services.admin as admin_service
@@ -22,6 +23,24 @@ def test_list_users_returns_all(db_session: Session):
     users = admin_service.list_users(db_session)
     ids = {u.id for u in users}
     assert {u1.id, u2.id} <= ids
+
+
+def test_list_users_respects_limit_and_offset(db_session: Session):
+    """Pagination coverage for the W5 admin.list_users limit/offset params."""
+    created = [UserFactory() for _ in range(5)]
+    created_ids = {u.id for u in created}
+
+    page1 = admin_service.list_users(db_session, limit=2, offset=0)
+    page2 = admin_service.list_users(db_session, limit=2, offset=2)
+
+    assert len(page1) == 2
+    assert len(page2) == 2
+
+    # Both pages together should stay inside the created set (order is desc-by-created_at).
+    ids_returned = {u.id for u in (page1 + page2)}
+    assert ids_returned.issubset(created_ids | {u.id for u in db_session.query(User).all()})
+    # No overlap between the two pages.
+    assert {u.id for u in page1}.isdisjoint({u.id for u in page2})
 
 # -----------------------
 # update_user
@@ -54,6 +73,62 @@ def test_update_user_changes_role_and_active_and_logs(db_session: Session):
     assert last.target_id == str(target.id)
     assert (last.after_state or {}).get("is_disabled") is True
     assert (last.after_state or {}).get("role_id") == str(role_creator.id)
+
+
+# --- Admin safety guards (G12 + self-demotion + last-superadmin) ---
+
+def test_update_user_rejects_unknown_role_id(db_session: Session):
+    """G12: assigning a role_id that doesn't exist must 400, not raise an
+    opaque FK IntegrityError on commit."""
+    target = UserFactory(role=RoleFactory(name="user"))
+    actor = UserFactory(role=RoleFactory(name="superadmin"))
+
+    with pytest.raises(HTTPException) as exc:
+        admin_service.update_user(
+            db_session,
+            user_id=target.id,
+            role_id=uuid.uuid4(),  # doesn't exist
+            actor_id=actor.id,
+        )
+    assert exc.value.status_code == 400
+    assert "role_id" in exc.value.detail.lower()
+
+
+def test_update_user_prevents_self_demotion_of_superadmin(db_session: Session):
+    """A superadmin cannot demote or disable themselves in one call."""
+    superadmin_role = RoleFactory(name="superadmin")
+    user_role = RoleFactory(name="user")
+    # Two superadmins — so the "last superadmin" branch doesn't fire first.
+    self_admin = UserFactory(role=superadmin_role)
+    UserFactory(role=superadmin_role)  # keep at least one other around
+
+    with pytest.raises(HTTPException) as exc:
+        admin_service.update_user(
+            db_session,
+            user_id=self_admin.id,
+            role_id=user_role.id,
+            actor_id=self_admin.id,  # acting on themselves
+        )
+    assert exc.value.status_code == 400
+    assert "themselves" in exc.value.detail.lower()
+
+
+def test_update_user_refuses_to_disable_last_active_superadmin(db_session: Session):
+    """Disabling the only remaining superadmin must be blocked."""
+    superadmin_role = RoleFactory(name="superadmin")
+    the_only = UserFactory(role=superadmin_role)
+    other_actor = UserFactory(role=superadmin_role, is_disabled=True)  # already disabled
+
+    with pytest.raises(HTTPException) as exc:
+        admin_service.update_user(
+            db_session,
+            user_id=the_only.id,
+            is_disabled=True,
+            actor_id=other_actor.id,
+        )
+    assert exc.value.status_code == 400
+    assert "superadmin" in exc.value.detail.lower()
+
 
 # -----------------------
 # soft_delete_user

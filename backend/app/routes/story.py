@@ -23,9 +23,8 @@ def create_new_story(
 ):
     """Creates a new story written by a user."""
     new_story = story.create_story(db, data, current_user)
-    
+
     # Manually build the response to ensure all fields and types are correct
-    print(f"this is the tag {new_story.tags}")
     return StoryOut(
         id=str(new_story.id),
         title=new_story.title,
@@ -122,7 +121,6 @@ def read_story_details(
 ):
     """Gets the full details of a single story."""
     story_object = story.get_story_details(db, story_id, current_user, request)
-    print(f"sthis story {story_object}")
     return StoryOut(
         id=str(story_object.id),
         title=story_object.title,

@@ -3,8 +3,7 @@ from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.orm import Session
 import uuid # Import for type hinting
 
-from app.schemas.comments import CommentCreate, CommentOut, CommentList
-from app.schemas.user import UserOut # Assuming UserOut has been updated for UUIDs
+from app.schemas.comments import CommentCreate, CommentOut, CommentList, CommentAuthorOut
 from app.services.comments import create_comment, list_comments, delete_comment
 from app.dependencies import get_db, get_current_user, get_current_user_optional
 
@@ -26,7 +25,11 @@ def post_comment(
         post_id=str(new_comment.story_id), # Use the correct attribute name
         content=new_comment.content,
         created_at=new_comment.created_at,
-        user=UserOut.model_validate(new_comment.user,from_attributes=True) # Assuming UserOut is correctly configured
+        user=CommentAuthorOut(
+            id=str(new_comment.user.id),
+            username=new_comment.user.username,
+            profile_image_url=new_comment.user.profile_image_url,
+        )
     )
 
 
@@ -47,7 +50,11 @@ def get_story_comments(
             post_id=str(comment.story_id),
             content=comment.content,
             created_at=comment.created_at,
-            user=UserOut(id=str(comment.user.id), username=comment.user.username, email=comment.user.email)
+            user=CommentAuthorOut(
+                id=str(comment.user.id),
+                username=comment.user.username,
+                profile_image_url=comment.user.profile_image_url,
+            )
         ) for comment in items
     ]
     return CommentList(total=total, items=validated_items)
