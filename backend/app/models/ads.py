@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text
+from app.utils.time import utcnow
 from datetime import datetime
 from app.core.database import Base
 from sqlalchemy.dialects.postgresql import UUID
@@ -15,5 +16,5 @@ class Ads(Base):
     active = Column(Boolean, default=True, nullable=False)
     start_at = Column(DateTime, nullable=True)
     end_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow)

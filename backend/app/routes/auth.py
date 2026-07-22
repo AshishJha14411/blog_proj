@@ -77,14 +77,14 @@ def signup(
     return LoginResponse(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
-        user=UserProfile.from_orm(user)
+        user=UserProfile.model_validate(user)
     )
 
 @router.post("/login",response_model=TokenPair,status_code=status.HTTP_200_OK)
 def login(data: LoginRequest, response: Response,db: Session=Depends(get_db), hasher = Depends(get_password_hasher)):
      user, tokens= login_user(db,data,hasher)
      set_refresh_cookie(response, tokens.refresh_token)
-     return LoginResponse(access_token=tokens.access_token, refresh_token=tokens.refresh_token, user=UserProfile.from_orm(user))
+     return LoginResponse(access_token=tokens.access_token, refresh_token=tokens.refresh_token, user=UserProfile.model_validate(user))
 
      
 
@@ -128,7 +128,7 @@ def refresh_token(
     return LoginResponse(
         access_token=new_tokens.access_token,
         refresh_token=new_tokens.refresh_token,
-        user=UserProfile.from_orm(user)
+        user=UserProfile.model_validate(user)
     )
     
     
@@ -215,7 +215,7 @@ def upload_avatar(
 
     # 3. Return the updated user profile
     # We use the explicit pattern to avoid validation errors.
-    return UserOut.from_orm(current_user)
+    return UserOut.model_validate(current_user)
 
 @router.patch("/me/password",status_code=status.HTTP_200_OK)
 

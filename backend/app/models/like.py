@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, ForeignKey, DateTime, UniqueConstraint
+from app.utils.time import utcnow
 from datetime import datetime
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -10,7 +11,7 @@ class Like(Base):
     id =  Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     story_id = Column(UUID(as_uuid=True), ForeignKey("stories.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     
     user = relationship("User", back_populates="likes")
     story = relationship("Story", back_populates="likes")

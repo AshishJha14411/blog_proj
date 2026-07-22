@@ -30,7 +30,6 @@ class AuditLogOut(BaseModel):
 
     class Config:
         from_attributes = True
-        json_encoders = {uuid.UUID: str}
 
 class ModerationLogs(BaseModel):
     logs: List[AuditLogOut]

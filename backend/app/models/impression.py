@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from app.utils.time import utcnow
 from datetime import datetime
 from app.core.database import Base
 from sqlalchemy.dialects.postgresql import UUID
@@ -15,4 +16,4 @@ class Impression(Base):
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
 
-    viewed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    viewed_at = Column(DateTime, default=utcnow, index=True)

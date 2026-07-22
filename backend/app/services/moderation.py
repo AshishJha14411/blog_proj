@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from app.utils.time import utcnow
 from fastapi import HTTPException, status
 from datetime import datetime
 from typing import List, Tuple, Optional
@@ -85,7 +86,7 @@ def resolve_flag(db: Session, flag_id: UUID, new_status: str, actor: User) -> Fl
     before = {"status": flag.status}
 
     flag.status = new_status
-    now = datetime.utcnow()
+    now = utcnow()
 
     if new_status in {"resolved", "ignored"}:
         # NOTE: model column is `resolved_by` (UUID), not `resolved_by_id`
@@ -145,7 +146,7 @@ def _close_open_flags(db: Session, story_id: uuid.UUID, resolver_id: uuid.UUID, 
     for f in flags:
         f.status = decision
         f.resolved_by_id = resolver_id
-        f.resolved_at = datetime.utcnow()
+        f.resolved_at = utcnow()
         if note:
             f.reason = f"{f.reason or ''} | Moderator Note: {note}"
 

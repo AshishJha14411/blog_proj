@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, JSON,ForeignKey
+from app.utils.time import utcnow
 from sqlalchemy.dialects.postgresql import INET,UUID # A specific type for IP addresses
 from app.core.database import Base
 from datetime import datetime
@@ -12,7 +13,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=utcnow, index=True)
     
     # --- WHO ---
     # The user who performed the action.

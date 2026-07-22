@@ -1,4 +1,5 @@
 import pytest
+from app.utils.time import utcnow
 from fastapi import HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
@@ -208,14 +209,14 @@ def test_reset_password_success(db_session: Session):
     user = UserFactory(password_hash=hasher.hash("oldpw"))
     token = PasswordResetToken(
         user_id=user.id,
-        token="token123",
-        expires_at=datetime.utcnow() + timedelta(hours=1),
+        token="token123-valid",  # ≥10 chars: real tokens are 43-char urlsafe strings
+        expires_at=utcnow() + timedelta(hours=1),
         used=False
     )
     db_session.add(token)
     db_session.commit()
 
-    req = ResetPasswordRequest(token="token123", new_password="newpassword")
+    req = ResetPasswordRequest(token="token123-valid", new_password="newpassword")
     res = auth.reset_password(db_session, req, hasher)
     db_session.refresh(user)
 
@@ -228,14 +229,14 @@ def test_reset_password_invalid_or_expired(db_session: Session):
     user = UserFactory()
     expired = PasswordResetTokenFactory(
         user_id=user.id,
-        token="expired",
-        expires_at=datetime.utcnow() - timedelta(hours=1),
+        token="expired-token1",
+        expires_at=utcnow() - timedelta(hours=1),
         used=False,
     )
     db_session.add(expired)
     db_session.commit()
 
-    req = ResetPasswordRequest(token="expired", new_password="newpassword")
+    req = ResetPasswordRequest(token="expired-token1", new_password="newpassword")
     with pytest.raises(HTTPException) as exc:
         auth.reset_password(db_session, req, get_password_hasher())
     assert exc.value.status_code == 400
@@ -374,7 +375,7 @@ def test_verify_otp_success(db_session: Session):
     entry = OTPVerification(
         user_id=user.id,
         otp_code=hasher.hash(raw),
-        expires_at=datetime.utcnow() + timedelta(minutes=5),
+        expires_at=utcnow() + timedelta(minutes=5),
         used=False,
     )
     db_session.add(entry); db_session.commit()
@@ -391,7 +392,7 @@ def test_verify_otp_wrong_code_400(db_session: Session):
     entry = OTPVerification(
         user_id=user.id,
         otp_code=hasher.hash("654321"),
-        expires_at=datetime.utcnow() + timedelta(minutes=5),
+        expires_at=utcnow() + timedelta(minutes=5),
         used=False,
     )
     db_session.add(entry); db_session.commit()
@@ -407,7 +408,7 @@ def test_verify_otp_expired_400(db_session: Session):
     entry = OTPVerification(
         user_id=user.id,
         otp_code=hasher.hash("111111"),
-        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        expires_at=utcnow() - timedelta(minutes=1),
         used=False,
     )
     db_session.add(entry); db_session.commit()

@@ -1,5 +1,6 @@
 # app/routes/moderation.py
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from app.utils.time import utcnow
 from sqlalchemy.orm import Session
 from typing import Optional
 from uuid import UUID as UUID_t
@@ -96,7 +97,7 @@ def flag_story(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
@@ -119,7 +120,7 @@ def flag_comment(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    comment = db.query(Comment).get(comment_id)
+    comment = db.get(Comment, comment_id)
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
 
@@ -214,7 +215,7 @@ def approve_a_story(
         f.status = "approved"
         if note:
             f.reason = (f.reason or "") + f"\nModerator Note: {note}"
-        f.resolved_at = datetime.utcnow()
+        f.resolved_at = utcnow()
         setattr(f, "resolved_by_id", moderator.id)
 
     db.flush()
@@ -228,7 +229,7 @@ def approve_a_story(
                 flagged_by_user_id=moderator.id,   # not asserted; any valid user id is fine
                 reason=(f"Moderator Note: {note}" if note else "Moderator Note: Approved"),
                 status="approved",
-                resolved_at=datetime.utcnow(),
+                resolved_at=utcnow(),
                 **{"resolved_by": moderator.id},  # keep explicit to satisfy tests
             )
         )
@@ -263,7 +264,7 @@ def reject_a_story(
     )
     for f in open_flags:
         f.status = "rejected"
-        f.resolved_at = datetime.utcnow()
+        f.resolved_at = utcnow()
         setattr(f, "resolved_by", moderator.id)
 
     db.flush()
@@ -277,7 +278,7 @@ def reject_a_story(
                 flagged_by_user_id=moderator.id,   # arbitrary, test doesn’t check
                 reason=reason or "Rejected",
                 status="rejected",
-                resolved_at=datetime.utcnow(),
+                resolved_at=utcnow(),
                 **{"resolved_by": moderator.id},
             )
         )

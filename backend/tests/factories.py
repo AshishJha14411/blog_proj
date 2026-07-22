@@ -1,4 +1,5 @@
 import factory
+from app.utils.time import utcnow
 from factory.alchemy import SQLAlchemyModelFactory
 from pytest_factoryboy import register  # <-- ADD THIS IMPORT
 from app.models.user import User
@@ -67,7 +68,7 @@ class PasswordResetTokenFactory(BaseFactory):
     # virtual relation; not a model column
     user = factory.SubFactory(UserFactory)
     token = factory.Faker("bothify", text="????????????????????????????????")
-    expires_at = factory.LazyFunction(lambda: datetime.utcnow() + timedelta(hours=1))
+    expires_at = factory.LazyFunction(lambda: utcnow() + timedelta(hours=1))
     used = False
 
     @classmethod

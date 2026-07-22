@@ -9,6 +9,13 @@ UsernameStr = constr(strip_whitespace=True, min_length=3, max_length=50)
 PasswordStr = constr(min_length=8, max_length=128)
 BioStr = constr(max_length=500)
 
+# For CHECKING existing credentials (login, old password): only cap the size.
+# A min_length here would 422-lock out any account whose password predates the
+# current policy — length rules apply when setting a password, never when
+# verifying one.
+ExistingPasswordStr = constr(min_length=1, max_length=128)
+LoginUsernameStr = constr(strip_whitespace=True, min_length=1, max_length=50)
+
 
 class SignUpRequest(BaseModel):
     email: EmailStr
@@ -30,8 +37,8 @@ class RoleOut(BaseModel):
         from_attributes = True
 # ------------LOGIN------------- #
 class LoginRequest(BaseModel):
-    username: UsernameStr
-    password: PasswordStr
+    username: LoginUsernameStr
+    password: ExistingPasswordStr
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
@@ -69,7 +76,7 @@ class UserUpdate(BaseModel):
     social_links: Optional[dict] = None
 
 class PasswordChangeRequest(BaseModel):
-    old_password: PasswordStr
+    old_password: ExistingPasswordStr
     new_password: PasswordStr
 
 class ForgotPasswordRequest(BaseModel):

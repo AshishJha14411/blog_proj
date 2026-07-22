@@ -1,6 +1,7 @@
 # app/models/notification.py
 
 from sqlalchemy import Column, Integer, ForeignKey, String, DateTime, Boolean
+from app.utils.time import utcnow
 from datetime import datetime
 from app.core.database import Base
 from sqlalchemy.dialects.postgresql import UUID
@@ -15,7 +16,7 @@ class Notification(Base):
     target_type = Column(String, nullable=True)
     target_id = Column(UUID(as_uuid=True), nullable=True)
     is_read = Column(Boolean, default=False, nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     
     recipient = relationship("User", foreign_keys=[recipient_id])
     actor = relationship("User", foreign_keys=[actor_id])

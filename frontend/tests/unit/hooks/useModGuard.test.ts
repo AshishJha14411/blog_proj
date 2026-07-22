@@ -12,10 +12,11 @@ import { User } from '@/stores/authStore';
 vi.mock('@/hooks/useHydratedAuth');
 // Mock the next/navigation module to provide a fake router
 const mockRouterPush = vi.fn();
+const mockRouterReplace = vi.fn();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockRouterPush,
-    // Add any other router functions your hook might use (e.g., replace, prefetch)
+    replace: mockRouterReplace, // the guard redirects non-mods via replace('/')
   }),
 }));
 // 2. Cast the mock so we can control its return value
@@ -49,6 +50,8 @@ describe('useModGuard Hook', () => {
     // ASSERT
     expect(result.current.isMod).toBe(false);
     expect(result.current.ready).toBe(false); // Check the 'ready' flag
+    // No redirect while hydration is unresolved
+    expect(mockRouterReplace).not.toHaveBeenCalled();
   });
   
   it('should return isMod: false when user is logged out', () => {
@@ -65,6 +68,8 @@ describe('useModGuard Hook', () => {
     // ASSERT
     expect(result.current.isMod).toBe(false);
     expect(result.current.ready).toBe(true);
+    // Hydrated non-mod gets redirected home
+    expect(mockRouterReplace).toHaveBeenCalledWith('/');
   });
 
   it('should return isMod: false when user has the "user" role', () => {
@@ -80,6 +85,7 @@ describe('useModGuard Hook', () => {
 
     // ASSERT
     expect(result.current.isMod).toBe(false);
+    expect(mockRouterReplace).toHaveBeenCalledWith('/');
   });
 
   it('should return isMod: true when user has the "moderator" role', () => {
@@ -95,6 +101,7 @@ describe('useModGuard Hook', () => {
 
     // ASSERT
     expect(result.current.isMod).toBe(true);
+    expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 
   it('should return isMod: true when user has the "superadmin" role', () => {
@@ -110,5 +117,6 @@ describe('useModGuard Hook', () => {
 
     // ASSERT
     expect(result.current.isMod).toBe(true);
+    expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 });

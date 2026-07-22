@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from app.utils.time import utcnow
 from fastapi import HTTPException, status
 from typing import List, Optional, Tuple
 import uuid
@@ -33,7 +34,7 @@ def update_ad(db: Session, ad_id: uuid.UUID, data: AdUpdate) -> Optional[Ads]:
 
     for k, v in update_data.items():
         setattr(ad, k, v)
-    ad.updated_at = datetime.utcnow()
+    ad.updated_at = utcnow()
     db.commit()
     db.refresh(ad)
     return ad
@@ -56,7 +57,7 @@ def list_ads(
     """Lists ads. Public callers should set active_only=True."""
     query = db.query(Ads)
     if active_only:
-        now = datetime.utcnow()
+        now = utcnow()
         query = query.filter(
             Ads.active.is_(True),
             (Ads.start_at.is_(None)) | (Ads.start_at <= now),

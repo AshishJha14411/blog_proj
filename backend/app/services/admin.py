@@ -1,5 +1,6 @@
 # app/services/admin.py
 from datetime import datetime
+from app.utils.time import utcnow
 from uuid import UUID
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
@@ -84,7 +85,7 @@ def update_user(
             "role_id": str(role_id) if role_id is not None else None,
             "is_disabled": is_disabled, 
         },
-        timestamp=datetime.utcnow(),
+        timestamp=utcnow(),
     )
     db.add(audit)
     db.commit()
@@ -108,7 +109,7 @@ def soft_delete_user(
         target_type="user",
         target_id=str(user_id),
         after_state={"is_disabled": True}, 
-        timestamp=datetime.utcnow(),
+        timestamp=utcnow(),
     )
     db.add(audit)
     db.commit()
@@ -183,7 +184,7 @@ def review_creator_request(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid action. Must be 'approve' or 'reject'.")
 
     req.reviewed_by_id = admin_user.id
-    req.reviewed_at = datetime.utcnow()
+    req.reviewed_at = utcnow()
     db.commit()
     db.refresh(req)
     return req

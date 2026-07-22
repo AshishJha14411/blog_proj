@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.utils.time import utcnow
 from datetime import datetime
 from typing import List, Optional, Tuple
 import uuid
@@ -228,7 +229,7 @@ def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[U
 
 # --- MODIFYING STORIES ---
 def update_story(db: Session, story_id: uuid.UUID, data: StoryUpdate, current_user: User) -> Story:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
@@ -254,24 +255,24 @@ def update_story(db: Session, story_id: uuid.UUID, data: StoryUpdate, current_us
             ))
 
 
-    story.updated_at = datetime.utcnow()
+    story.updated_at = utcnow()
     db.commit()
     db.refresh(story)
     return story
 
 def delete_story(db: Session, story_id: uuid.UUID, current_user: User) -> None:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
     
-    story.deleted_at = datetime.utcnow()
+    story.deleted_at = utcnow()
     db.commit()
     return {"message": "Story deleted successfully"}
 
 # --- AI-SPECIFIC MODIFICATIONS ---
 def regenerate_with_feedback(db: Session, story_id: uuid.UUID, feedback: str, current_user: User) -> Story:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
@@ -283,7 +284,7 @@ def regenerate_with_feedback(db: Session, story_id: uuid.UUID, feedback: str, cu
     story.version += 1
     story.content = new_text
     story.words_count = _count_words(new_text)
-    story.updated_at = datetime.utcnow()
+    story.updated_at = utcnow()
     story.last_feedback = feedback
     story.is_flagged = flagged
     story.is_published = False
@@ -298,7 +299,7 @@ def regenerate_with_feedback(db: Session, story_id: uuid.UUID, feedback: str, cu
     return story
 
 def publish_story(db: Session, story_id: uuid.UUID, current_user: User) -> Story:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
@@ -307,20 +308,20 @@ def publish_story(db: Session, story_id: uuid.UUID, current_user: User) -> Story
 
     story.is_published = True
     story.status = StoryStatus.published
-    story.updated_at = datetime.utcnow()
+    story.updated_at = utcnow()
     db.commit()
     db.refresh(story)
     return story
 
 def unpublish_story(db: Session, story_id: uuid.UUID, current_user: User) -> Story:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
 
     story.is_published = False
     story.status = StoryStatus.generated
-    story.updated_at = datetime.utcnow()
+    story.updated_at = utcnow()
     db.commit()
     db.refresh(story)
     return story

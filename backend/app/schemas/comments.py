@@ -18,7 +18,6 @@ class CommentAuthorOut(BaseModel):
     username: str
     profile_image_url: Optional[str] = None
     class Config:
-        orm_mode = True
         from_attributes = True
 
 class CommentOut(BaseModel):
@@ -29,7 +28,6 @@ class CommentOut(BaseModel):
     created_at: datetime
     user: CommentAuthorOut
     class Config:
-        orm_mode = True
         from_attributes = True
 
 class CommentList(BaseModel):

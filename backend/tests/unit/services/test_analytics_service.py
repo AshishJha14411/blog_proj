@@ -1,6 +1,7 @@
 # tests/unit/services/test_analytics_service.py
 
 import uuid
+from app.utils.time import utcnow
 from datetime import datetime, timedelta, date
 
 import pytest
@@ -117,7 +118,7 @@ def test_get_moderation_logs_order_desc(db_session: Session):
     from app.models.audit_log import AuditLog
     from tests.factories import UserFactory, RoleFactory
 
-    now = datetime.utcnow()
+    now = utcnow()
     older = now - timedelta(hours=1)
 
     # Create real users to satisfy FK audit_logs.actor_user_id -> users.id

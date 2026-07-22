@@ -1,6 +1,7 @@
 # app/services/auth.py
 
 import logging
+from app.utils.time import utcnow
 import random
 import os
 import secrets
@@ -84,7 +85,7 @@ def create_user(
     otp_entry = OTPVerification(
         user = new_user,
         otp_code = hasher.hash(raw_otp),
-        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        expires_at = utcnow() + timedelta(minutes=10)
     )
     db.add(new_user)
     db.add(otp_entry)
@@ -192,7 +193,7 @@ def verify_email(token:str, db: Session) -> MessageResponse:
             status_code = status.HTTP_404_NOT_FOUND,
             detail = " User not Found"
         )
-    user = db.query(User).get(payload.get("user_id"))
+    user = db.get(User, payload.get("user_id"))
     if user.is_verified:
         return MessageResponse(message = "Email is Verified")
     user.is_verified = True
@@ -220,7 +221,7 @@ def verify_otp(data: VerifyOtpRequest, db: Session) -> MessageResponse:
     # 3) Validate existence, expiry, and the code via hash-verify
     if (
         not otp
-        or otp.expires_at < datetime.utcnow()
+        or otp.expires_at < utcnow()
         or not verify_password(data.otp_code, otp.otp_code)  # compare raw vs hashed
     ):
         raise HTTPException(
@@ -279,7 +280,7 @@ def forgot_password(
         reset_token = PasswordResetToken(
             user_id=user.id,
             token=raw_token, # Storing raw token as per your current model
-            expires_at=datetime.utcnow() + timedelta(hours=1)
+            expires_at=utcnow() + timedelta(hours=1)
         )
         db.add(reset_token)
         db.commit()
@@ -306,14 +307,14 @@ def reset_password(db: Session, data: ResetPasswordRequest, hasher):
     token_entry = db.query(PasswordResetToken).filter(PasswordResetToken.token == data.token).first()
 
     # 2. Validate the token
-    if not token_entry or token_entry.used or token_entry.expires_at < datetime.utcnow():
+    if not token_entry or token_entry.used or token_entry.expires_at < utcnow():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired password reset token."
         )
 
     # 3. Find the user associated with the token and update their password
-    user = db.query(User).get(token_entry.user_id)
+    user = db.get(User, token_entry.user_id)
     if not user:
         # This case should be rare but is a good safeguard
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
@@ -339,7 +340,7 @@ def refresh_access(db: Session, data: RefreshTokenRequest) -> tuple[User, TokenP
     except (JWTError, HTTPException) as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token") from e
 
-    user = db.query(User).get(payload.get("user_id"))
+    user = db.get(User, payload.get("user_id"))
     if not user or user.is_disabled:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found or disabled")
 

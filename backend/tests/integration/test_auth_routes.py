@@ -1,4 +1,5 @@
 import io
+from app.utils.time import utcnow
 import uuid
 import pytest
 from datetime import datetime, timedelta, timezone
@@ -68,7 +69,7 @@ def test_signup_conflict_409(client: TestClient, db_session: Session):
     res = client.post("/auth/signup", json={
         "email": "another@example.com",
         "username": "dupe",
-        "password": "abc"
+        "password": "abc12345"  # must satisfy the min-8 policy so we reach the 409, not a 422
     })
     assert res.status_code == 409
 
@@ -102,7 +103,12 @@ def test_refresh_token_from_cookie_success(client: TestClient, db_session: Sessi
     assert res.status_code == 200, res.text
     data = res.json()
     assert "access_token" in data and "refresh_token" in data
-    assert data["refresh_token"] == refresh  # no rotation currently
+    # Rotation: every refresh mints a new token and blacklists the old one.
+    assert data["refresh_token"] != refresh
+    # Replaying the old token must now be rejected.
+    client.cookies.set("refresh_token", refresh, path="/auth")
+    replay = client.post("/auth/refresh")
+    assert replay.status_code == 401
 
 def test_refresh_token_missing_cookie_401(client: TestClient):
     res = client.post("/auth/refresh")
@@ -167,7 +173,7 @@ def test_verify_otp_success(client: TestClient, db_session: Session):
     otp_entry = OTPVerification(
         user_id=user.id,
         otp_code=hasher.hash(raw_otp),
-        expires_at=datetime.utcnow() + timedelta(minutes=5),
+        expires_at=utcnow() + timedelta(minutes=5),
         used=False,
     )
     db_session.add(otp_entry); db_session.commit()
@@ -185,7 +191,7 @@ def test_verify_otp_invalid_or_expired(client: TestClient, db_session: Session):
     otp_entry = OTPVerification(
         user_id=user.id,
         otp_code=get_password_hasher().hash("000000"),
-        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        expires_at=utcnow() - timedelta(minutes=1),
         used=False,
     )
     db_session.add(otp_entry); db_session.commit()
@@ -277,7 +283,7 @@ def test_reset_password_happy_path(client: TestClient, db_session: Session):
     token = PasswordResetToken(
         user_id=user.id,
         token="RANDOMTOKEN",
-        expires_at=datetime.utcnow() + timedelta(hours=1),
+        expires_at=utcnow() + timedelta(hours=1),
         used=False,
     )
     db_session.add(token); db_session.commit()

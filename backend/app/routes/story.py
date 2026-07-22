@@ -214,7 +214,7 @@ def generate_ai_story(
         is_published=new_story.is_published,
         source=new_story.source,
         user=UserSummary(id=str(new_story.user.id), username=new_story.user.username),
-        tags=[TagSummary.from_orm(tag) for tag in new_story.tags]
+        tags=[TagSummary.model_validate(tag) for tag in new_story.tags]
     )
 
 
@@ -239,7 +239,7 @@ def apply_feedback_to_story(
         is_published=regenerated_story.is_published,
         source=regenerated_story.source,
         user=UserSummary(id=str(regenerated_story.user.id), username=regenerated_story.user.username),
-        tags=[TagSummary.from_orm(tag) for tag in regenerated_story.tags]
+        tags=[TagSummary.model_validate(tag) for tag in regenerated_story.tags]
     )
 
 

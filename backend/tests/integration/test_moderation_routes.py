@@ -63,7 +63,7 @@ def test_flag_story_404(client: TestClient, db_session: Session):
     user = UserFactory()
     client.app.dependency_overrides[get_current_user] = _override_user(user)
 
-    res = client.post(f"/stories/{uuid.uuid4()}/flag", json={"reason": "x"})
+    res = client.post(f"/stories/{uuid.uuid4()}/flag", json={"reason": "spam content"})
     client.app.dependency_overrides.pop(get_current_user, None)
 
     assert res.status_code == 404

@@ -1,7 +1,8 @@
 from sqlalchemy import (
-    Column, Integer, String, Boolean, ForeignKey, DateTime, 
+    Column, Integer, String, Boolean, ForeignKey, DateTime,
     Text, Enum, Float
 )
+from app.utils.time import utcnow
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -52,8 +53,8 @@ class Story(Base):
     status = Column(Enum(StoryStatus), default=StoryStatus.draft, index=True)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at = Column(DateTime, nullable=True, index=True)
     
     # Relationships

@@ -1,5 +1,6 @@
 # tests/unit/services/test_story_service.py
 import uuid
+from app.utils.time import utcnow
 from datetime import datetime, timedelta
 import pytest
 
@@ -338,7 +339,7 @@ def test_get_story_details_404_when_soft_deleted(db_session: Session, monkeypatc
         StoryCreate(title="doomed", content="body", tag_names=["x"], is_published=True),
         author,
     )
-    s.deleted_at = datetime.utcnow()
+    s.deleted_at = utcnow()
     db_session.commit()
 
     with pytest.raises(Exception) as exc:
@@ -362,7 +363,7 @@ def test_get_all_stories_hides_soft_deleted(db_session: Session, monkeypatch):
         StoryCreate(title="gone", content="body", tag_names=[], is_published=True),
         author,
     )
-    dead.deleted_at = datetime.utcnow()
+    dead.deleted_at = utcnow()
     db_session.commit()
 
     total, items = story_service.get_all_stories(

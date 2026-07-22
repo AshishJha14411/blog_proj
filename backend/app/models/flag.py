@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, ForeignKey, Text, String, DateTime
+from app.utils.time import utcnow
 from datetime import datetime
 from app.core.database import Base
 from sqlalchemy.dialects.postgresql import UUID
@@ -13,5 +14,5 @@ class Flag(Base):
     reason = Column(Text, nullable=False)
     status = Column(String, default="open")
     resolved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     resolved_at = Column(DateTime, nullable=True)
