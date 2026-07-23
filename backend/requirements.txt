@@ -74,7 +74,11 @@ python-dotenv==1.1.0
 python-jose==3.5.0
 python-multipart==0.0.20
 PyYAML==6.0.3
-redis==6.2.0
+# recommended by claude opus 4.7: redis-py 5.x — celery[redis] 5.4.0 pins
+# redis<6, and 5.2.1 is the latest that satisfies both celery and fakeredis.
+# Server-side we still run Redis 7 (see docker-compose), so `getdel` etc.
+# work fine — this is a client-library version pin, not a server one.
+redis==5.2.1
 fakeredis==2.26.1
 requests==2.32.5
 requests-oauthlib==2.0.0
