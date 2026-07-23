@@ -2,7 +2,7 @@ name: "Quill & Code CI/CD"
 
 on:
   push:
-    branches: [ "main", "testBranch" ]
+    branches: [ "main", "testBranch", "dev" ]
   pull_request:
     branches: [ "main" ]
 
