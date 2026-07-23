@@ -89,10 +89,32 @@ def db_engine():
     # Store schema name in an attribute for backward compatibility
     setattr(engine, "_test_schema", schema_name)
 
+    # `search_path` is a per-connection (session-level) Postgres setting, not
+    # an engine-wide one. Setting it once on the single connection used below
+    # only isolates *that* connection — db_session's db_engine.connect() can
+    # hand back any other pooled connection (default pool_size=5), which
+    # would still have the default `public` search_path and silently read/
+    # write the real public schema instead of this isolated one. A `connect`
+    # event fires for every physical DBAPI connection the pool ever creates,
+    # so this is what actually makes every connection isolated, not just one.
+    @event.listens_for(engine, "connect")
+    def _set_search_path(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f'SET search_path TO "{schema_name}", public')
+        cursor.close()
+
     with engine.begin() as conn:
         conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
         conn.execute(text(f'SET search_path TO "{schema_name}", public'))
-        Base.metadata.create_all(conn)
+        # checkfirst=False: the default checkfirst=True probes table
+        # existence through the connection's search_path, which finds the
+        # REAL app tables already sitting in `public` (from migrations/seed
+        # run outside tests) and concludes each table "already exists" —
+        # skipping creation in `{schema_name}` entirely. The schema name is
+        # freshly randomized above, so it's guaranteed empty; no need to
+        # check first, and skipping the check is what makes tables actually
+        # get created here instead of silently falling through to `public`.
+        Base.metadata.create_all(conn, checkfirst=False)
 
     yield engine
 

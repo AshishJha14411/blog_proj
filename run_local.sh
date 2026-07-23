@@ -73,7 +73,7 @@ done
 # reruns. Do it here explicitly so a fresh clone gets an admin user.
 
 echo "==> alembic upgrade head"
-docker compose exec -T backend alembic upgrade head
+docker compose exec -T backend python -m alembic upgrade head
 
 echo "==> python -m app.seed"
 docker compose exec -T backend python -m app.seed || true  # idempotent seed

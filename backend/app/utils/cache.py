@@ -22,6 +22,7 @@ one worker recomputes), tag-based invalidation (`SADD tag:user:{uid}` +
 """
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 from typing import Any, Callable, Iterable, Optional
@@ -31,6 +32,15 @@ from redis.exceptions import RedisError
 from app.core.redis import get_redis_client
 
 logger = logging.getLogger(__name__)
+
+
+def _json_default(obj: Any) -> str:
+    """Fallback serializer for json.dumps: ISO 8601 for dates/datetimes (matching
+    how Pydantic already serializes them elsewhere in this app), str() for
+    everything else (e.g. UUID)."""
+    if isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
+    return str(obj)
 
 # Everything the cache writes lives under this prefix so we can namespace
 # the whole layer with a single wildcard.
@@ -68,7 +78,7 @@ def set_cached(key_parts: Iterable[str], value: Any, ttl_seconds: int) -> None:
     """Best-effort write. Silently drops on serialization or Redis error."""
     key = _k(*key_parts)
     try:
-        payload = json.dumps(value, default=str)  # `default=str` handles UUID/datetime
+        payload = json.dumps(value, default=_json_default)
     except (TypeError, ValueError) as exc:
         logger.warning("cache.set: value at %s not JSON-serializable: %s", key, exc)
         return

@@ -41,21 +41,26 @@ def test_ttl_is_respected(fake_redis):
     assert fake_redis.ttl("idemp:test:ttl") == 10
 
 
-def test_fail_open_when_redis_errors(monkeypatch):
+def test_fail_open_when_redis_errors():
     """Default behavior on Redis error is to ALLOW the caller through —
     better to send an email twice than lose it during an outage."""
     boom = MagicMock()
     boom.set.side_effect = RedisConnectionError("redis down")
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: boom)
+    # NOTE: `idempotency.py` imports `get_redis_client` by name, so patching
+    # the attribute on `redis_module` wouldn't reach that already-bound
+    # reference. `set_redis_client` swaps the shared singleton instead —
+    # the same mechanism the autouse `fake_redis` fixture uses — so it's
+    # visible no matter how callers imported the getter.
+    redis_module.set_redis_client(boom)
 
     assert idempotency.claim_once("test:down") is True
 
 
-def test_fail_closed_when_caller_asks(monkeypatch):
+def test_fail_closed_when_caller_asks():
     """For high-risk operations that can't tolerate duplicates, on_error='deny'
     forces the caller to skip if we can't confirm the reservation."""
     boom = MagicMock()
     boom.set.side_effect = RedisConnectionError("redis down")
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: boom)
+    redis_module.set_redis_client(boom)
 
     assert idempotency.claim_once("test:down", on_error="deny") is False

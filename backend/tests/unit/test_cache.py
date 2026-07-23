@@ -79,19 +79,22 @@ def test_invalidate_story_kills_list_and_detail():
 # Fail-soft on Redis errors
 # ---------------------------------------------------------------------------
 
-def test_get_returns_none_when_redis_errors(monkeypatch):
+def test_get_returns_none_when_redis_errors():
     boom = MagicMock()
     boom.get.side_effect = RedisConnectionError("redis is dead")
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: boom)
+    # `cache.py` imports `get_redis_client` by name, so patching the attribute
+    # on `redis_module` never reaches that bound reference — `set_redis_client`
+    # swaps the actual shared singleton instead.
+    redis_module.set_redis_client(boom)
 
     # get_cached must never propagate — cache misses are always survivable.
     assert cache.get_cached(("test", "any")) is None
 
 
-def test_set_swallows_redis_errors(monkeypatch):
+def test_set_swallows_redis_errors():
     boom = MagicMock()
     boom.setex.side_effect = RedisConnectionError("redis is dead")
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: boom)
+    redis_module.set_redis_client(boom)
 
     # Should not raise — writes to the cache are best-effort.
     cache.set_cached(("test", "any"), "value", ttl_seconds=10)

@@ -72,7 +72,13 @@ def test_create_story_dedupes_tags_and_sets_published_when_not_flagged(client: T
     })
     assert res.status_code == 201, res.text
     body = res.json()
-    assert body["is_published"] is True
+    # create_story always lands a story as pending/unpublished regardless of
+    # the requested is_published — moderate_story_task decides the real
+    # publish state, and it's stubbed out in tests (conftest.py::
+    # _stub_moderate_story_task) so it can't reach outside this test's
+    # transaction. "not flagged" is exercised directly in
+    # tests/unit/tasks/test_moderation_task.py instead.
+    assert body["is_published"] is False
     assert sorted([t["name"] for t in body["tags"]]) == ["a", "b"]
     assert body["source"] == "user"
 

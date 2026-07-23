@@ -244,6 +244,16 @@ def test_get_all_stories_visibility_and_filters(db_session: Session, monkeypatch
         _allow_creator(),
     )
 
+    # create_story always lands a story as pending/unpublished — the actual
+    # publish flip happens in moderate_story_task, which is stubbed out for
+    # every test (tests/conftest.py::_stub_moderate_story_task) so it doesn't
+    # open a second DB session outside this test's transaction. Simulate a
+    # clean moderation pass on s1 directly, since this test is about
+    # get_all_stories' visibility filtering, not the moderation pipeline.
+    s1.is_published = True
+    s1.status = StoryStatus.published
+    db_session.commit()
+
     # Regular sees only published
     total, items = story_service.get_all_stories(db_session, limit=10, offset=0, tag=None, author_id=None, current_user=user_regular)
     assert total == 1
@@ -360,6 +370,13 @@ def test_get_all_stories_hides_soft_deleted(db_session: Session, monkeypatch):
         StoryCreate(title="gone", content="body", tag_names=[], is_published=True),
         author,
     )
+    # create_story always lands as pending/unpublished — the real publish
+    # flip happens in moderate_story_task, stubbed out in every test (see
+    # tests/conftest.py::_stub_moderate_story_task). Simulate a clean
+    # moderation pass on `live` directly since this test is about the
+    # soft-delete filter, not the moderation pipeline.
+    live.is_published = True
+    live.status = StoryStatus.published
     dead.deleted_at = utcnow()
     db_session.commit()
 

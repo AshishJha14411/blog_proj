@@ -154,7 +154,7 @@ def test_e2e_bypass_ignored_in_production(monkeypatch):
 # Fail-open behaviour
 # ---------------------------------------------------------------------------
 
-def test_rate_limit_fails_open_when_redis_is_down(monkeypatch):
+def test_rate_limit_fails_open_when_redis_is_down():
     """If Redis pipeline calls raise, the limiter must log and allow the request.
     A rate limiter must never itself become the outage."""
 
@@ -168,7 +168,10 @@ def test_rate_limit_fails_open_when_redis_is_down(monkeypatch):
 
     boom_client = MagicMock()
     boom_client.pipeline.return_value = _BoomPipe()
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: boom_client)
+    # `rate_limiter.py` imports `get_redis_client` by name, so patching the
+    # attribute on `redis_module` never reaches that bound reference —
+    # `set_redis_client` swaps the actual shared singleton instead.
+    redis_module.set_redis_client(boom_client)
 
     req = _fake_request(path="/fail-open")
     # No exception, even far above the "limit".

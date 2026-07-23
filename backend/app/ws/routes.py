@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, status
 
 from app.dependencies import get_current_user
 from app.models.user import User
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/ws", tags=["WebSocket"])
 # recommended by claude opus 4.7: keep the ticket endpoint rate-limited on
 # top of auth. Cheap for a real client (one mint per WS lifecycle) and
 # stops a script from burning tickets to keep Redis busy.
-def _ticket_rate_limit(request):
+def _ticket_rate_limit(request: Request):
     # 20 tickets/min per user is plenty for a normal client that reconnects
     # on backoff. Adjust upward if the frontend hook proves this too tight.
     rate_limit(request, limit=20, window=60, scope="ws:ticket")
@@ -33,7 +33,7 @@ def _ticket_rate_limit(request):
 
 @router.post("/ticket", status_code=status.HTTP_200_OK)
 def create_ticket(
-    request,  # FastAPI passes the Request in — matches rate_limit signature
+    request: Request,
     _rl: None = Depends(_ticket_rate_limit),
     current_user: User = Depends(get_current_user),
 ) -> dict:
