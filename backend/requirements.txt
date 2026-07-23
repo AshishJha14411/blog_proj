@@ -53,7 +53,12 @@ proto-plus==1.26.1
 protobuf==5.29.5
 psycopg==3.2.12
 psycopg-binary==3.2.12
-# psycopg2-binary removed — SQLAlchemy 2 uses psycopg (v3) by default.
+# recommended by claude opus 4.7: SQLAlchemy defaults the `postgresql://`
+# dialect to psycopg2. Migrating to psycopg v3 requires rewriting every
+# DATABASE_URL to `postgresql+psycopg://` (ci.yml, docker-compose, .env,
+# and prod Cloud Run secrets). We keep both drivers installed so URLs
+# stay stable — v3 for anyone who opts in via `+psycopg`, v2 by default.
+psycopg2-binary==2.9.11
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycparser==2.23
