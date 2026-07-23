@@ -230,9 +230,22 @@ class DummyMailer:
     def __init__(self):
         self.outbox: list[dict] = []
 
-    def send_email(self, to: str, subject: str, html: str):
+    # /** WHY: signature must match app/utils/email.py::Mailer.send_email
+    #     (to_email/subject/body). The Celery email task calls those exact
+    #     kwargs; if this drifts, every signup/reset test blows up with
+    #     TypeError instead of asserting on outbox contents. **/
+    def send_email(self, to_email: str, subject: str, body: str):
         self.outbox.append(
-            {"to": to, "subject": subject, "html": html, "ts": datetime.now(timezone.utc).isoformat()}
+            {
+                # Keep both keys so existing tests that read `to`/`html` still
+                # work AND the new task-shaped keys are available.
+                "to": to_email,
+                "to_email": to_email,
+                "subject": subject,
+                "html": body,
+                "body": body,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
         )
 
 # Helper to execute queued background tasks
