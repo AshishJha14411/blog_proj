@@ -1,38 +1,67 @@
 # app/services/auth.py
 
 import logging
-from app.utils.time import utcnow
-import random
 import os
+import random
 import secrets
-from datetime import datetime, timedelta,timezone
-from fastapi import BackgroundTasks, HTTPException, status,Depends
+import uuid as _uuid
+from datetime import datetime, timedelta, timezone
+
+import requests
+from fastapi import BackgroundTasks, HTTPException, status
+from jose import JWTError
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-
-logger = logging.getLogger(__name__)
-from fastapi.security import OAuth2PasswordBearer
-from app.dependencies import get_db, get_password_hasher, get_mailer
-from jose import JWTError
-from app.models.user import User
-from app.models.role import Role
-from app.schemas.auth import LoginRequest, RefreshTokenRequest, TokenPair,MessageResponse,VerifyOtpRequest,UserUpdate,PasswordChangeRequest,ForgotPasswordRequest, ResetPasswordRequest
-from app.models.otp_verification import OTPVerification
-from app.utils.security import hash_password, create_access_token,verify_password,decode_access_token,create_refresh_token
-from app.core.config import settings
-from app.models.otp_verification import OTPVerification
-from app.models.token_blacklist import TokenBlacklist
-from app.models.password_reset_token import PasswordResetToken
-import requests
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+
+from app.core.config import settings
 from app.models.oauth_accounts import OAuthAccount
-from app.schemas.auth import GoogleLoginRequest
-from typing import Tuple
+from app.models.otp_verification import OTPVerification
+from app.models.password_reset_token import PasswordResetToken
+from app.models.role import Role
 from app.models.token_blacklist import TokenBlacklist
+from app.models.user import User
+from app.schemas.auth import (
+    ForgotPasswordRequest,
+    LoginRequest,
+    MessageResponse,
+    PasswordChangeRequest,
+    RefreshTokenRequest,
+    ResetPasswordRequest,
+    TokenPair,
+    UserUpdate,
+    VerifyOtpRequest,
+)
+from app.tasks.email import send_email_task
+from app.utils.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_access_token,
+    verify_password,
+)
+from app.utils.time import utcnow
+
+logger = logging.getLogger(__name__)
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl = "/auth/login")
+# /** WHY: signup, forgot-password, etc. used to call background_tasks.add_task(
+#     mailer.send_email, ...). That runs in the request process, gets no retry,
+#     and vanishes on redeploy. Every send now goes through Celery. **/
+# /** WHAT: enqueue an SMTP send. `dedupe_key` is prefixed with the caller's
+#     concern (verify/otp/reset) + user id so a redelivered task doesn't send
+#     the same email twice. **/
+# /** WHY-THIS-WAY: `.delay(...)` runs synchronously under `task_always_eager`
+#     in tests and asynchronously (over Redis) in prod — same task body both
+#     paths, so tests still observe the send via the monkeypatched
+#     `_mailer_for_worker`. **/
+def _enqueue_email(dedupe_key: str, *, to: str, subject: str, html: str) -> None:
+    send_email_task.delay(
+        message_id=dedupe_key,
+        to=to,
+        subject=subject,
+        html=html,
+    )
 
 def create_user(
     db: Session,
@@ -111,23 +140,26 @@ def create_user(
         f"<p>Thanks for signing up, <strong>{new_user.username}</strong>!</p>"
         f"<p>Please verify your email by clicking <a href=\"{verify_link}\">here</a>.</p>"
     )
-    background_tasks.add_task(
-        mailer.send_email,
-        new_user.email,
-        "✅ Confirm Your Email Address",
-        link_body
+    # /** WHY-THIS-WAY: dedupe key includes the user id + a fresh uuid because
+    #     a user can legitimately re-signup after account deletion and expect a
+    #     new verification email. **/
+    _enqueue_email(
+        dedupe_key=f"verify:{new_user.id}:{_uuid.uuid4().hex}",
+        to=new_user.email,
+        subject="✅ Confirm Your Email Address",
+        html=link_body,
     )
-    #OTP Email
+    # OTP Email
     otp_body = (
         f"<p>Hi {new_user.username},</p>"
         f"<p>Your verification code is: <strong>{raw_otp}</strong></p>"
         "<p>This code expires in 10 minutes.</p>"
     )
-    background_tasks.add_task(
-        mailer.send_email,
-        new_user.email,
-        "🔒 Your OTP Verification Code",
-        otp_body
+    _enqueue_email(
+        dedupe_key=f"otp:{new_user.id}:{otp_entry.id}",
+        to=new_user.email,
+        subject="🔒 Your OTP Verification Code",
+        html=otp_body,
     )
     access_token = create_access_token(data={"user_id": str(new_user.id)})
     refresh_token = create_refresh_token(
@@ -288,13 +320,14 @@ def forgot_password(
         # 3. Create the full reset link for the email
         reset_link = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
         
-        # 4. Email the link to the user in the background
+        # 4. Email the link. Dedupe by the reset-token id so a redelivered
+        #    task doesn't re-send the same URL — the user only needs it once.
         email_body = f"<p>Hi {user.username},</p><p>Please click <a href='{reset_link}'>here</a> to reset your password. This link is valid for 1 hour.</p>"
-        background_tasks.add_task(
-            mailer.send_email,
-            user.email,
-            "🔑 Password Reset Request",
-            email_body
+        _enqueue_email(
+            dedupe_key=f"reset:{user.id}:{reset_token.id}",
+            to=user.email,
+            subject="🔑 Password Reset Request",
+            html=email_body,
         )
         
     return {"message": "If an account with that email exists, a password reset link has been sent."}

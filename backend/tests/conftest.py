@@ -346,6 +346,129 @@ def stub_llm(monkeypatch):
         return ("<h1>Fake title</h1><p>Fake body.</p>", "fake-msg-id")
     monkeypatch.setattr(LLMAdapter, "generate", _fake_generate)
 
+
+# ------------------------------------------------------------------
+#  REDIS (fakeredis) — Phase 1 of UPGRADE_PLAN
+# ------------------------------------------------------------------
+# We swap the shared Redis client for an in-memory fake per test. This lets
+# rate-limiter and cache tests run without a real Redis service — CI does
+# spin one up (see .github/workflows/ci.yml) but the majority of tests
+# don't care about it, and depending on a network daemon in every unit
+# test is a fragile default.
+
+@pytest.fixture(autouse=True)
+def fake_redis():
+    import fakeredis
+    from app.core import redis as redis_module
+
+    fake = fakeredis.FakeRedis(decode_responses=True)
+    redis_module.set_redis_client(fake)
+    try:
+        yield fake
+    finally:
+        fake.flushall()
+        redis_module.reset_redis_client()
+
+
+# ------------------------------------------------------------------
+#  CELERY EAGER MODE — Phase 2 of UPGRADE_PLAN
+# ------------------------------------------------------------------
+# `.delay()` normally puts a message on the broker for a worker to pick up.
+# In tests we don't want to spin up a worker — `task_always_eager=True`
+# runs the task synchronously in the calling thread instead. Combined with
+# `task_eager_propagates=True`, exceptions raised in a task propagate to
+# the caller, which is what test assertions need.
+#
+# Also: patch `_mailer_for_worker` inside the email task module so tests
+# can still assert on `dummy_mailer.outbox` — the task calls this helper
+# to build its SMTP client, and we substitute the dummy per test.
+
+@pytest.fixture(autouse=True)
+def _stub_moderate_story_task(monkeypatch):
+    """
+    /** WHY: story_service.create_story enqueues moderate_story_task.delay()
+        on every publish. Under eager mode the task would actually run and
+        open a fresh SessionLocal() that writes outside the test's SAVEPOINT
+        — leaking rows across tests and pointing at prod DB during CI setup. **/
+    /** WHAT: replace the task binding at the enqueue site with a no-op.
+        Tests that want to exercise the task itself import the real symbol
+        directly (see tests/unit/tasks/test_moderation_task.py). **/
+    """
+    from app.services import story as story_service
+
+    class _NoOpTask:
+        def delay(self, **kwargs):
+            return None
+        def apply(self, **kwargs):
+            return None
+        def apply_async(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(story_service, "moderate_story_task", _NoOpTask())
+
+
+@pytest.fixture(autouse=True)
+def celery_eager(dummy_mailer):
+    """
+    /** WHY: run Celery tasks synchronously in tests. Otherwise `.delay()`
+        enqueues a message that never runs — every email-sending assertion
+        would silently do nothing. **/
+    /** WHY-THIS-WAY: eager mode is documented as "lies about serialization
+        and retry behavior" for integration purposes — that's fine here
+        because we have separate tests that exercise retry logic directly
+        (see tests/unit/tasks/test_email_task.py). **/
+    """
+    from app.worker import celery_app
+    from app.tasks import email as email_task
+
+    prev_eager = celery_app.conf.task_always_eager
+    prev_propagate = celery_app.conf.task_eager_propagates
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = True
+
+    original_mailer_factory = email_task._mailer_for_worker
+    email_task._mailer_for_worker = lambda: dummy_mailer
+    try:
+        yield
+    finally:
+        celery_app.conf.task_always_eager = prev_eager
+        celery_app.conf.task_eager_propagates = prev_propagate
+        email_task._mailer_for_worker = original_mailer_factory
+
+
+# ------------------------------------------------------------------
+#  DISABLE RATE LIMITERS BY DEFAULT
+# ------------------------------------------------------------------
+# The rate limiter itself is tested in
+# tests/unit/test_rate_limiter.py and tests/integration/test_rate_limit_routes.py.
+# Every other test would just have to work around throttling — cheaper to
+# turn the limiters off globally and let the dedicated tests re-enable
+# them by not requesting this fixture (they don't).
+#
+# Individual test modules can opt back in by deleting their entries from
+# `app.dependency_overrides` before the request under test.
+
+@pytest.fixture(autouse=True)
+def _disable_all_rate_limiters(client):
+    from app.utils import rate_limiter as rl
+    limiters = [
+        rl.rate_limit,
+        rl.signup_rate_limiter,
+        rl.login_rate_limiter,
+        rl.forgot_password_rate_limiter,
+        rl.story_create_rate_limiter,
+        rl.llm_generate_rate_limiter,
+        rl.comment_create_rate_limiter,
+        rl.flag_rate_limiter,
+    ]
+    for lim in limiters:
+        client.app.dependency_overrides[lim] = lambda: None
+    try:
+        yield
+    finally:
+        for lim in limiters:
+            client.app.dependency_overrides.pop(lim, None)
+
 # ------------------------------------------------------------------
 #  SEED FAKER (DETERMINISTIC FACTORY DATA)
 # ------------------------------------------------------------------

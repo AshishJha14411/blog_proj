@@ -70,55 +70,52 @@ def test_create_story_permission_denied_for_user_role(db_session: Session):
     assert "permission" in str(exc.value).lower()
 
 
-def test_create_story_success_for_creator_role(db_session: Session, monkeypatch):
+def test_create_story_lands_in_pending_and_enqueues_moderation(db_session: Session):
+    """
+    /** WHY: after the AI-moderation-to-Celery migration, create_story no
+        longer runs moderation inline. Its job now is: persist the row as
+        `pending`, enqueue the async task, return. The task decides the
+        final state. **/
+    """
     creator = _allow_creator()
-
-    # moderation -> clean
-    monkeypatch.setattr(story_service, "moderate_content", lambda contents: (False, []))
 
     payload = StoryCreate(
         title="My Story",
         header="Intro",
         content="<p>Hello world</p>",
-        tag_names=["scifi", "drama", "scifi"],  # duplicate to test idempotent tag link
+        tag_names=["scifi", "drama", "scifi"],
         is_published=True,
     )
 
     created = story_service.create_story(db_session, payload, creator)
     assert isinstance(created, Story)
     assert created.title == "My Story"
-    assert created.is_published is True
-    assert created.status == StoryStatus.published
+    assert created.is_published is False
+    assert created.status == StoryStatus.pending
     assert created.source == ContentSource.user
 
-    # Tags: two unique ones created/linked
     names = sorted([t.name for t in created.tags])
     assert names == ["drama", "scifi"]
 
-    # re-run with same tags should not duplicate Tag rows
+    # Idempotent tag reuse: the same names don't create new Tag rows.
     before = db_session.query(Tag).count()
     story_service.create_story(db_session, payload, creator)
     after = db_session.query(Tag).count()
-    assert after == before  # no new Tag rows created
+    assert after == before
 
 
-def test_create_story_flagged_creates_flag_and_unpublishes(db_session: Session, monkeypatch):
+def test_create_story_as_draft_stays_draft(db_session: Session):
+    """
+    /** WHY: `is_published=False` means the author isn't ready to publish;
+        moderation must not run yet. Status stays `draft`. **/
+    """
     creator = _allow_creator()
-    monkeypatch.setattr(story_service, "moderate_content", lambda _: (True, ["profanity"]))
-
     payload = StoryCreate(
-        title="Bad Story",
-        content="spoopy content",
-        tag_names=["spooky"],
-        is_published=True,
+        title="Draft", content="body", tag_names=[], is_published=False,
     )
     created = story_service.create_story(db_session, payload, creator)
     assert created.is_published is False
-    assert created.is_flagged is True
-    assert created.flag_source == FlagSource.ai
-
-    # A Flag record should exist for this story
-    assert db_session.query(Flag).filter_by(story_id=str(created.id), status="open").count() == 1
+    assert created.status == StoryStatus.draft
 
 
 # -----------------------

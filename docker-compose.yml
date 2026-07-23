@@ -15,6 +15,8 @@ services:
       # This is the "key" to the database.
       # It tells FastAPI to connect to the 'db' service on port 5432.
       DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
+      # Redis (rate limiter + cache). Compose service name is `redis`.
+      REDIS_URL: "redis://redis:6379/0"
 
       # We load all other secrets from your .env file
       SECRET_KEY: ${SECRET_KEY}
@@ -29,6 +31,8 @@ services:
       - backend/.env # Loads the .env file from the backend folder
     depends_on:
       db: # Tells this service to wait until the 'db' service is healthy
+        condition: service_healthy
+      redis:
         condition: service_healthy
     # Hits the /healthz endpoint added in Round 3; frontend gates on this
     # so the first request doesn't race an unmigrated backend.
@@ -58,6 +62,53 @@ services:
       backend:
         condition: service_healthy
 
+  # 4. Celery worker — Phase 2 of UPGRADE_PLAN. Runs the same image as the
+  #    backend so tasks share code + models automatically. Add more replicas
+  #    with `docker compose up --scale worker=N` when a slow task starts
+  #    hogging capacity.
+  worker:
+    build:
+      context: ./backend
+    # recommended by claude opus 4.7: --concurrency=2 keeps memory bounded on
+    # dev machines. Prod should raise this via `--scale worker` (many small
+    # processes) rather than bumping concurrency (fewer big ones), which
+    # plays badly with the GIL for CPU-bound tasks.
+    command: >
+      celery -A app.worker.celery_app worker
+      --loglevel=info
+      --concurrency=2
+      --prefetch-multiplier=1
+    environment:
+      DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
+      REDIS_URL: "redis://redis:6379/0"
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    env_file:
+      - backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 5. Redis — rate limiter + cache + Celery broker (Phase 1 of UPGRADE_PLAN)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # 3. The Database Service
   db:
     image: postgres:16 # Use the official PostgreSQL 16 image
@@ -82,3 +133,4 @@ services:
 # This tells Docker to create the named volume on your hard drive
 volumes:
   postgres_data:
+  redis_data:

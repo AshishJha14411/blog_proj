@@ -22,7 +22,15 @@ class ContentSource(enum.Enum):
     user = "user"
 
 class StoryStatus(enum.Enum):
+    """
+    /** WHY: adds `pending` for stories awaiting the async moderation task
+        (UPGRADE_PLAN Phase 2 AI moderation migration). Existing values keep
+        their meanings — the state machine is now:
+            created  → pending  → published | rejected
+            AI-gen'd → generated → (as above once publish_now is set)  **/
+    """
     draft = "draft"
+    pending = "pending"       # awaiting AI moderation
     generated = "generated"
     published = "published"
     rejected = "rejected"

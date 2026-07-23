@@ -70,7 +70,12 @@ it('should log in, fetch user, update store, and redirect on success', async () 
   await user.type(passwordInput, 'testpass123');
   await user.click(submitButton);
 
-  // Login is pending — the button must be disabled right now, no polling needed.
+  // Wait until the submit handler has actually invoked loginUser — only then
+  // is resolveLogin assigned (CI machines schedule the handler later than
+  // local runs, so asserting anything before this point is a race).
+  await waitFor(() => expect(loginUser).toHaveBeenCalledWith('testuser', 'testpass123'));
+
+  // Login promise is pending — loading state must be visible.
   expect(submitButton).toBeDisabled();
 
   resolveLogin(mockTokenData);

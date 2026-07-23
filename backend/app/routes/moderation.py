@@ -22,6 +22,8 @@ from app.schemas.moderation import (
 from app.schemas.user import UserSummary
 from app.schemas.stories import StoryOut
 from app.services import moderation
+from app.utils.rate_limiter import flag_rate_limiter
+from app.utils import cache as story_cache
 
 # Admin/mod endpoints under /moderation
 router = APIRouter(prefix="/moderation", tags=["Moderation"])
@@ -90,7 +92,11 @@ def _set_flag_resolver(flag: Flag, user_id: uuid.UUID):
 # USER-FACING FLAG ENDPOINTS
 # =========================
 
-@user_action_router.post("/stories/{story_id}/flag", status_code=status.HTTP_201_CREATED)
+@user_action_router.post(
+    "/stories/{story_id}/flag",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(flag_rate_limiter)],
+)
 def flag_story(
     story_id: UUID_t,
     data: FlagCreate,
@@ -113,7 +119,11 @@ def flag_story(
     return _flag_to_out(flag)
 
 
-@user_action_router.post("/comments/{comment_id}/flag", status_code=status.HTTP_201_CREATED)
+@user_action_router.post(
+    "/comments/{comment_id}/flag",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(flag_rate_limiter)],
+)
 def flag_comment(
     comment_id: UUID_t,
     data: FlagCreate,
@@ -202,6 +212,8 @@ def approve_a_story(
 ):
     # Run domain logic first
     story = moderation.approve_story(db, story_id, moderator, note=body.note)
+    # Moderation flips visibility — kill any cached list/detail pages.
+    story_cache.invalidate_story(str(story_id))
 
     note = (body.note or "").strip()
 
@@ -255,6 +267,8 @@ def reject_a_story(
 
     # Run domain logic first
     story = moderation.reject_story(db, story_id, moderator, reason=reason)
+    # Moderation flips visibility — kill any cached list/detail pages.
+    story_cache.invalidate_story(str(story_id))
 
     # Try to close any remaining open flags
     open_flags = (

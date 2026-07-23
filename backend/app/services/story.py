@@ -19,10 +19,20 @@ from app.schemas.stories import StoryCreate, StoryUpdate, StoryGenerateIn, Story
 from app.services.moderation import moderate_content
 from app.llm.adapter import LLMAdapter
 from app.core.config import settings
-from app.services.system import get_automod_user 
+from app.services.system import get_automod_user
+from app.tasks.moderation import moderate_story_task
 # Initialize the LLM Adapter once
 _llm = LLMAdapter()
-# --- STORY CREATION (HUMAN) ---
+
+
+# /** WHY: AI moderation used to run inline and add LLM latency to every
+#     publish. Now the row lands in `pending`, the async task runs the
+#     moderator, and the row flips to `published` / `rejected` when it's
+#     done. Publish latency drops to a DB insert. **/
+# /** WHY-THIS-WAY: enqueue via .delay() — eager-mode in tests, real Redis
+#     queue in prod. Under eager mode the transition happens synchronously
+#     right after the request commits, so integration tests still see the
+#     final state without special-casing. **/
 def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
     tag_objs = []
     allowed_roles = {"creator", "moderator", "admin"}
@@ -31,46 +41,45 @@ def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to create a story."
         )
-    for name in dict.fromkeys(data.tag_names or []): # Use tag_names from the unified schema
+    for name in dict.fromkeys(data.tag_names or []):
         tag = db.query(Tag).filter(Tag.name == name).first()
         if not tag:
             tag = Tag(name=name)
             db.add(tag)
             db.flush()
         tag_objs.append(tag)
-    
-    # Profanity check
-    flagged, cats = moderate_content([data.title, data.content])
-    
+
+    # /** WHY: land the row as `pending` regardless of the client-requested
+    #     `is_published` — the moderation task decides whether it's published
+    #     or rejected. A user can no longer publish unmoderated content by
+    #     racing an upload with a flagged content check. **/
+    wants_publish = bool(data.is_published)
+
     new_story = Story(
         user_id=str(current_user.id),
         title=data.title,
         header=data.header,
         content=data.content,
         cover_image_url=str(data.cover_image_url) if data.cover_image_url else None,
-        is_published=(data.is_published and not flagged),
-        is_flagged=flagged,
-        flag_source="ai" if flagged else "none",
+        is_published=False,       # stays False until moderation approves
+        is_flagged=False,
+        flag_source="none",
         source=ContentSource.user,
-        status=StoryStatus.published if (data.is_published and not flagged) else StoryStatus.draft
+        status=StoryStatus.pending if wants_publish else StoryStatus.draft,
     )
     new_story.tags = tag_objs
     db.add(new_story)
-    db.flush() # Flush to get the new_story.id
+    db.flush()  # get new_story.id
 
-    if flagged:
-        automod_user = get_automod_user(db)
-        db.add(Flag(
-            flagged_by_user_id=automod_user.id,
-            story_id=str(new_story.id),
-            reason="; ".join(cats) or "Profanity detected by AI",
-            status="open",
-        ))
-
-        # db.add(flag)
-        
+    story_id = str(new_story.id)
     db.commit()
     db.refresh(new_story)
+
+    if wants_publish:
+        # Only enqueue when the author actually wants this published. Drafts
+        # skip moderation until the publish action is invoked separately.
+        moderate_story_task.delay(story_id=story_id)
+
     return new_story
 
 # --- STORY CREATION (AI) ---
@@ -156,7 +165,11 @@ def get_all_stories(db: Session, limit: int, offset: int, tag: Optional[str], au
         .options(joinedload(Story.user), selectinload(Story.tags))
         .filter(Story.deleted_at.is_(None))
     )
-    if not (current_user and current_user.role.name in ("moderator", "superadmin")):
+    is_mod = bool(current_user and current_user.role.name in ("moderator", "superadmin"))
+    if not is_mod:
+        # /** WHY: `pending` and `rejected` rows must never show up in the
+        #     public list, even before the moderation task finishes running.
+        #     is_published=True is the strongest single filter. **/
         query = query.filter(Story.is_published == True)
     if author_id:
         query = query.filter(Story.user_id == author_id)

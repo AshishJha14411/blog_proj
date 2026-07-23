@@ -6,14 +6,20 @@ import uuid # Import for type hinting
 from app.schemas.comments import CommentCreate, CommentOut, CommentList, CommentAuthorOut
 from app.services.comments import create_comment, list_comments, delete_comment
 from app.dependencies import get_db, get_current_user, get_current_user_optional
+from app.utils.rate_limiter import comment_create_rate_limiter
 
 router = APIRouter(tags=["Comments"])
 
-@router.post("/stories/{story_id}/comments", response_model=CommentOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/stories/{story_id}/comments",
+    response_model=CommentOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(comment_create_rate_limiter)],
+)
 def post_comment(
     story_id: uuid.UUID, # <-- FIX: Changed from str to uuid.UUID
-    data: CommentCreate, 
-    db: Session = Depends(get_db), 
+    data: CommentCreate,
+    db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     new_comment = create_comment(db, story_id, data.content, current_user)

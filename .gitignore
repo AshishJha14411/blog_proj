@@ -8,7 +8,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.log
-
+UPGRADE_PLAN.md
 # =========================================
 #  Python (Backend) - Recursive
 # =========================================
