@@ -3,7 +3,18 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Server Components / route handlers run inside the frontend's own Node
+// process (in Docker, a separate container from the backend), so the
+// browser-facing NEXT_PUBLIC_API_URL (localhost:8000, published to the host)
+// isn't reachable from there — that's a connection to the frontend
+// container itself, not the backend one. API_URL_INTERNAL (e.g.
+// http://backend:8080, the Docker-network service name) is server-only, so
+// it's deliberately NOT prefixed with NEXT_PUBLIC_. `typeof window` is safe
+// to branch on at module scope: Next.js bundles this file separately for
+// the server runtime and the browser, so each side evaluates its own case.
+export const API_URL = typeof window === 'undefined'
+  ? (process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
 const axiosInstance = axios.create({
   baseURL: API_URL,

@@ -57,8 +57,14 @@ services:
                    # .next through the host bind mount races Turbopack's
                    # temp-file renames (ENOENT on _buildManifest.js.tmp.*)
     environment:
-      # Tells Next.js to talk to the 'backend' service
+      # Browser-facing URL — the published host port, since this value ships
+      # to the client bundle and runs in the user's own browser.
       NEXT_PUBLIC_API_URL: "http://localhost:8000"
+      # Server-only (no NEXT_PUBLIC_ prefix — never sent to the browser).
+      # Server Components / route handlers run inside THIS container, where
+      # "localhost:8000" is this frontend container, not the backend one —
+      # they need the Docker-network service name instead. See lib/axios.ts.
+      API_URL_INTERNAL: "http://backend:8080"
       # This is required for Next.js hot-reloading to work inside Docker
       WATCHPACK_POLLING: "true"
     depends_on:

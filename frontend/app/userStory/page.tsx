@@ -7,9 +7,10 @@ export const dynamic = 'force-dynamic';
 // Client-only AdSlot inside a Server Component
 const AdSlot = nextDynamic(() => import('@/components/ads/AdSlot'), { ssr: true });
 
-export default async function AllPostsPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
+export default async function AllPostsPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const limit = 10;
-  const page = Number(searchParams?.page) || 1;
+  const resolvedSearchParams = await searchParams;
+  const page = Number(resolvedSearchParams?.page) || 1;
   const offset = (page - 1) * limit;
 
   const { total, items: posts } = await getAllPosts(limit, offset);
