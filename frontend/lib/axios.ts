@@ -3,6 +3,11 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 
+interface RetryableRequestConfig extends InternalAxiosRequestConfig {
+  _networkRetry?: boolean;
+  _retry?: boolean;
+}
+
 // Server Components / route handlers run inside the frontend's own Node
 // process (in Docker, a separate container from the backend), so the
 // browser-facing NEXT_PUBLIC_API_URL (localhost:8000, published to the host)
@@ -28,8 +33,7 @@ axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = useAuthStore.getState().accessToken;
     if (token) {
-      config.headers = config.headers ?? {};
-      (config.headers as any).Authorization = `Bearer ${token}`;
+      config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
@@ -58,7 +62,7 @@ async function refreshAccessToken(): Promise<string | null> {
       }
       setAccessToken(newAccess);
       return newAccess;
-    } catch (err) {
+    } catch {
       logout();
       return null;
     } finally {
@@ -73,7 +77,7 @@ async function refreshAccessToken(): Promise<string | null> {
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest: any = error.config;
+    const originalRequest = error.config as RetryableRequestConfig | undefined;
 
     // One retry on network error / timeout (free-tier cold starts).
     if (!error.response && originalRequest && !originalRequest._networkRetry) {
@@ -82,11 +86,11 @@ axiosInstance.interceptors.response.use(
       return axiosInstance(originalRequest);
     }
 
-    if (!error.response || error.response.status !== 401) {
+    if (!error.response || error.response.status !== 401 || !originalRequest) {
       return Promise.reject(error);
     }
 
-    const url = (originalRequest?.url || '') as string;
+    const url = originalRequest.url || '';
     if (url.includes('/auth/login') || url.includes('/auth/refresh')) {
       useAuthStore.getState().logout();
       return Promise.reject(error);
@@ -102,7 +106,6 @@ axiosInstance.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    originalRequest.headers = originalRequest.headers ?? {};
     originalRequest.headers.Authorization = `Bearer ${newToken}`;
     return axiosInstance(originalRequest);
   }

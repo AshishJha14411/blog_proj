@@ -2,12 +2,12 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import axios from 'axios';
 import { signupUser } from '@/services/authService';
 import AuthCard from '../ui/AuthCard';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import FormLabel from '../ui/FormLabel';
-import GoogleLoginButton from '../auth/GoogleLoginButton';
 
 // --- 1. Import the store and the login function ---
 import { useAuthStore } from '@/stores/authStore';
@@ -42,10 +42,12 @@ export default function SignupForm() {
 
       router.push('/'); // Redirect to homepage *after* logging in
       
-    } catch (err: any) {
-      // Set a more specific error from the backend if possible
-      const detail = err.response?.data?.detail || 'Failed to create account. Please try again.';
-      setError(detail);
+    } catch (err) {
+      // Set a more specific error from the backend if possible — deliberately
+      // NOT falling back to a generic error.message (a network/client error
+      // wouldn't have a useful one); only the backend's own detail is shown.
+      const detail = axios.isAxiosError(err) ? (err.response?.data as { detail?: string } | undefined)?.detail : undefined;
+      setError(detail || 'Failed to create account. Please try again.');
     } finally {
       setLoading(false); // <-- Stop loading
     }

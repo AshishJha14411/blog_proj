@@ -1,13 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAuthStore } from '@/stores/authStore';
+import { useAuthStore, type User } from '@/stores/authStore';
+
+interface AuthHookState {
+  user: User | null;
+  accessToken: string | null;
+  isAuthenticated: boolean;
+}
 
 // This is the default, "logged-out" state. It's what the server will always see.
-const initialState = {
+const initialState: AuthHookState = {
   user: null,
   accessToken: null,
-  refreshToken: null,
   isAuthenticated: false,
 };
 

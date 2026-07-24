@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import axios from "axios";
 import { generateStory, StoryGenerateIn } from "@/services/storyService";
+import { getErrorMessage } from "@/lib/errors";
 
 export default function GenerateStoryPage() {
   const router = useRouter();
@@ -22,7 +24,7 @@ export default function GenerateStoryPage() {
     model_name: "gemini-2.5-pro",
   });
 
-  const onChange = (k: keyof StoryGenerateIn, v: any) =>
+  const onChange = <K extends keyof StoryGenerateIn>(k: K, v: StoryGenerateIn[K]) =>
     setForm((s) => ({ ...s, [k]: v }));
 
 async function onSubmit(e: React.FormEvent) {
@@ -49,11 +51,12 @@ async function onSubmit(e: React.FormEvent) {
   try {
     const created = await generateStory(payload);
     router.push(`/stories/${created.id}`);
-  } catch (e: any) {
-    if (Array.isArray(e?.response?.data?.detail)) {
-      setErr(e.response.data.detail.map((d: any) => d.msg).join(", "));
+  } catch (e) {
+    const detail = axios.isAxiosError(e) ? e.response?.data?.detail : undefined;
+    if (Array.isArray(detail)) {
+      setErr((detail as Array<{ msg: string }>).map((d) => d.msg).join(", "));
     } else {
-      setErr(e?.message || "Failed to generate");
+      setErr(getErrorMessage(e, "Failed to generate"));
     }
   } finally {
     setLoading(false);
@@ -130,7 +133,7 @@ async function onSubmit(e: React.FormEvent) {
             <select
               className="w-full rounded-md border p-2"
               value={form.length_label ?? "short"}
-              onChange={(e) => onChange("length_label", e.target.value as any)}
+              onChange={(e) => onChange("length_label", e.target.value as StoryGenerateIn['length_label'])}
             >
               <option value="flash">flash</option>
               <option value="short">short</option>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { approvePost, fetchModPost, rejectPost } from "@/services/moderationService";
+import { approvePost, fetchModPost, rejectPost, type ModPost } from "@/services/moderationService";
 import { useParams, useRouter } from "next/navigation";
 import { useModGuard } from "@/hooks/useModGuard";
 import DOMPurify from "isomorphic-dompurify";
@@ -11,7 +11,7 @@ export default function ModItemPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string; // <-- keep as string (UUID)
-  const [post, setPost] = useState<any>(null);
+  const [post, setPost] = useState<ModPost | null>(null);
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export default function ModItemPage() {
         <div className="mt-6 border-t pt-4">
           <h2 className="font-medium mb-2">Flags</h2>
           <ul className="text-sm list-disc pl-5">
-            {post.flags.map((f: any) => (
+            {post.flags.map((f) => (
               <li key={f.id}>
                 {f.reason} — {new Date(f.created_at).toLocaleString()}
               </li>

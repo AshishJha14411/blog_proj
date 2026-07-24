@@ -1,7 +1,6 @@
 
 import { getAllPosts } from '@/services/postService';
 import PostCard from '@/components/common/PostCard';
-import Link from 'next/link';
 
 // This Server Component fetches and displays posts for a specific tag
 export default async function PostsByTagPage({
@@ -18,7 +17,7 @@ export default async function PostsByTagPage({
   return (
     <main className="mx-auto max-w-5xl p-8 font-sans">
       <h1 className="mb-8 text-center text-4xl font-bold text-text">
-        Posts tagged with "{tagName}"
+        Posts tagged with &quot;{tagName}&quot;
       </h1>
       {posts.length > 0 ? (
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">

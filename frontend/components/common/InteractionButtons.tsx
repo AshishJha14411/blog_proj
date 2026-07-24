@@ -30,7 +30,7 @@ export default function InteractionButtons({
       const response = await toggleLike(postId);
       // Sync with the actual state from the server
       setLiked(response.liked!);
-    } catch (error) {
+    } catch {
       // If the API call fails, revert the UI change
       setLiked((prev) => !prev);
       alert('Failed to update like status.');
@@ -47,7 +47,7 @@ export default function InteractionButtons({
       const response = await toggleBookmark(postId);
       // Sync with the actual state from the server
       setBookmarked(response.bookmarked!);
-    } catch (error) {
+    } catch {
       // Revert UI on failure
       setBookmarked((prev) => !prev);
       alert('Failed to update bookmark status.');

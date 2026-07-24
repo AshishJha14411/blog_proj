@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { changePassword } from '@/services/authService';
+import { getErrorMessage } from '@/lib/errors';
 import AuthCard from '@/components/ui/AuthCard';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -39,8 +40,8 @@ export default function ChangePasswordPage() {
             await changePassword({ old_password: oldPassword, new_password: newPassword });
             setSuccess('Password changed successfully! Redirecting to your profile...');
             redirectTimer.current = setTimeout(() => router.push('/profile'), 2000);
-        } catch (err: any) {
-            setError(err?.message || 'Failed to change password. Check your old password.');
+        } catch (err) {
+            setError(getErrorMessage(err, 'Failed to change password. Check your old password.'));
         } finally {
             setLoading(false);
         }

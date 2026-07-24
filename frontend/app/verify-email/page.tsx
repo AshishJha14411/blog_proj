@@ -43,7 +43,7 @@ function VerificationProcessor() {
       } catch (error) {
         // On failure, update the UI with the error message
         setStatus('error');
-        setMessage(error.message || 'An error occurred. The link may be invalid or expired.');
+        setMessage(error instanceof Error ? error.message : 'An error occurred. The link may be invalid or expired.');
       }
     };
 

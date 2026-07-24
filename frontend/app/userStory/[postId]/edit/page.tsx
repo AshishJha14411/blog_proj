@@ -24,7 +24,7 @@ export default function EditPostPage() {
         const post = await getPostById(postId);
         setTitle(post.title);
         setContent(post.content);
-      } catch (err) {
+      } catch {
         setError('Failed to load post data.');
       } finally {
         setLoading(false);
@@ -37,9 +37,9 @@ export default function EditPostPage() {
     event.preventDefault();
     setError('');
     try {
-      await updatePost(params.postId, { title, content });
-      router.push(`/userStory/${params.postId}`); // Redirect back to the post
-    } catch (err) {
+      await updatePost(postId, { title, content });
+      router.push(`/userStory/${postId}`); // Redirect back to the post
+    } catch {
       setError('Failed to update post.');
     }
   };

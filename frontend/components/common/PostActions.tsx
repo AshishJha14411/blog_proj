@@ -4,7 +4,6 @@ import { useHydratedAuth } from '@/hooks/useHydratedAuth';
 import { deletePost } from '@/services/postService';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
 
 interface PostActionsProps {
   postAuthorId: string;
@@ -21,7 +20,7 @@ export default function PostActions({ postAuthorId, postId, isAI }: PostActionsP
       try {
         await deletePost(String(postId));
         router.push('/myposts');
-      } catch (err) {
+      } catch {
         alert('Failed to delete post.');
       }
     }

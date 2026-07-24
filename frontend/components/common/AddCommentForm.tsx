@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
+import type { Comment } from '@/services/commentService';
 
 interface AddCommentFormProps {
   postId: string;
@@ -28,7 +29,7 @@ export default function AddCommentForm({ postId, onCommentAdded }: AddCommentFor
       console.log("On Adding comment check:", newComments)
       onCommentAdded(newComments); 
       setContent(''); 
-    } catch (err) {
+    } catch {
       setError('Failed to post comment. Please try again.');
     } finally {
       setLoading(false);

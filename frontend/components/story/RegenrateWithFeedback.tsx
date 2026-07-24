@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { sendFeedback } from "@/services/storyService";
+import { getErrorMessage } from "@/lib/errors";
 
 export default function RegenerateWithFeedback({ postId }: { postId: string }) {
   const [feedback, setFeedback] = useState("");
@@ -19,8 +20,8 @@ export default function RegenerateWithFeedback({ postId }: { postId: string }) {
       setMsg(`Regenerated (version ${updated.version ?? "?"}). Refresh to see changes if not auto-rendered.`);
       setFeedback("");
       // If your post page fetches on client, you could also trigger a re-fetch here.
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail || e.message || "Failed to regenerate");
+    } catch (e) {
+      setErr(getErrorMessage(e, "Failed to regenerate"));
     } finally {
       setLoading(false);
     }

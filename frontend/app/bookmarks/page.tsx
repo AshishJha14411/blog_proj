@@ -62,7 +62,7 @@ export default function BookmarksPage() {
         </div>
       ) : (
         <p className="text-center text-text-light">
-          You haven't bookmarked any posts yet.
+          You haven&apos;t bookmarked any posts yet.
         </p>
       )}
     </main>
