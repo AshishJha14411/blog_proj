@@ -23,5 +23,10 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  // Test files use vitest's injected globals (`vi`, `describe`, ...) and
+  // Cypress's own ambient types, neither of which this app tsconfig declares
+  // — and they're not part of what `next build` ships anyway. Excluding them
+  // here scopes type-checking to actual app code; vitest/cypress run tests
+  // via their own transforms and don't need this tsconfig's project-wide check.
+  "exclude": ["node_modules", "tests", "cypress"]
 }

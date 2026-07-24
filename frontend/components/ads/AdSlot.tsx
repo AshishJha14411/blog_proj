@@ -18,7 +18,7 @@ export default function AdSlot({ limit = 20, className = "" }: { limit?: number;
         setAd(chosen);
         // TODO: when you add /ads/impression on the backend:
         // if (chosen) recordImpression(chosen.id, 'slot_name');
-      } catch (e) {
+      } catch {
         setAd(null);
       }
     })();

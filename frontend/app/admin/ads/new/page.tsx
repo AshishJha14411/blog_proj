@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { adminCreateAd } from '@/services/adsService';
+import { getErrorMessage } from '@/lib/errors';
 
 export default function AdminCreateAdPage() {
   // 1) HOOKS: always called, in the same order, no conditions
@@ -58,8 +59,8 @@ export default function AdminCreateAdPage() {
         active,
       });
       router.replace('/admin/ads'); // navigate after success
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to create ad.');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to create ad.'));
     } finally {
       setSaving(false);
     }

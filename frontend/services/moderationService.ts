@@ -3,7 +3,7 @@ import api from "@/lib/axios";
 export type StoryStatus = "draft" | "generated" | "published" | "rejected";
 
 export interface ModQueueParams {
-  status?: StoryStatus | "flagged";
+  status?: StoryStatus | "flagged" | "";
   author_id?: string;
   tag?: string;
   q?: string;
@@ -32,8 +32,23 @@ export async function fetchModQueue(params: ModQueueParams): Promise<QueueRespon
   return data;
 }
 
-export async function fetchModPost(id: string) {
-  const { data } = await api.get(`/stories/${id}`);
+export interface ModPostFlag {
+  id: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface ModPost {
+  id: string;
+  title: string;
+  content: string;
+  user?: { id: string; username: string };
+  created_at: string;
+  flags?: ModPostFlag[];
+}
+
+export async function fetchModPost(id: string): Promise<ModPost> {
+  const { data } = await api.get<ModPost>(`/stories/${id}`);
   return data;
 }
 

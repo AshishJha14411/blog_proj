@@ -155,7 +155,7 @@ export default function ChatWidget() {
     const text = input.trim();
     if (!text || busy || !socketRef.current || !connected) return;
     socketRef.current.send(JSON.stringify({ type: "user", content: text }));
-    setMessages((prev) => [...prev, { role: "user", content: text }].slice(-MAX_MESSAGES));
+    setMessages((prev) => [...prev, { role: "user" as const, content: text }].slice(-MAX_MESSAGES));
     setInput("");
     setBusy(true);
     setError(null);

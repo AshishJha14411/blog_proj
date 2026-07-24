@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import NotificationsBell from "./NotificationsBell";
 
 export default function Navbar() {
-  const { user, isAuthenticated, accessToken, refreshToken, isHydrated } = useAuth();
+  const { user, isAuthenticated, accessToken, isHydrated } = useAuth();
   const router = useRouter();
   
   // 2. Add state to manage the creator request button's UI
@@ -35,12 +35,12 @@ export default function Navbar() {
     setRequestMessage('');
     try {
       // We pass an empty reason as requested
-      const response = await requestCreatorAccess('', accessToken);
+      await requestCreatorAccess('', accessToken);
       setRequestStatus('success');
       setRequestMessage('Request Submitted!');
     } catch (error) {
       setRequestStatus('error');
-      setRequestMessage(error.message || 'Failed to submit request.');
+      setRequestMessage(error instanceof Error ? error.message : 'Failed to submit request.');
     }
   };
 

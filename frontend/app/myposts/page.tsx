@@ -48,7 +48,7 @@ export default function MyPostsPage() {
           posts.map((post) => <PostCard key={post.id} post={post} />)
         ) : (
           <p className="col-span-full text-center text-text-light">
-            You haven't created any posts yet.
+            You haven&apos;t created any posts yet.
           </p>
         )}
       </div>

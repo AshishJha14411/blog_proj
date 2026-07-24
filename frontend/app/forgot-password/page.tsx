@@ -22,7 +22,7 @@ export default function ForgotPasswordPage() {
             const response = await forgotPassword(email);
             // Always show a success message to prevent user enumeration
             setMessage(response.message);
-        } catch (err) {
+        } catch {
             // Even on error, show a generic success message for security
             setMessage('If an account with that email exists, a password reset link has been sent.');
         } finally {

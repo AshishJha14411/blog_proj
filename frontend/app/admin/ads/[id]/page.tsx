@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { fetchAd } from '@/services/adsService'; // same combined service
 import { useAuth } from '@/hooks/useAuth';
 import type { AdOut } from '@/services/adsService';
+import { getErrorMessage } from '@/lib/errors';
 
 export default function AdminAdDetailPage() {
   const { id } = useParams() as { id: string };
@@ -25,8 +26,8 @@ export default function AdminAdDetailPage() {
       try {
         const data = await fetchAd(id);
         setAd(data);
-      } catch (e: any) {
-        setErr(e?.response?.data?.detail || 'Failed to load ad');
+      } catch (e) {
+        setErr(getErrorMessage(e, 'Failed to load ad'));
       }
     })();
   }, [id, isHydrated, user, router]);

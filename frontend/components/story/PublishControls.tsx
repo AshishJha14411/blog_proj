@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { publishStory, unpublishStory } from "@/services/storyService";
+import { getErrorMessage } from "@/lib/errors";
 
 export default function PublishControls({
   postId,
@@ -25,8 +26,8 @@ export default function PublishControls({
         await publishStory(postId);
         setState(true);
       }
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail || e.message || "Action failed");
+    } catch (e) {
+      setErr(getErrorMessage(e, "Action failed"));
     } finally {
       setLoading(false);
     }

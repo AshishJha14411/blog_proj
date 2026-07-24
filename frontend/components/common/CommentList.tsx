@@ -25,7 +25,7 @@ export default function CommentList({ postId }: CommentListProps) {
       try {
         const fetchedComments = await getCommentsForPost(postId);
         setComments(fetchedComments);
-      } catch (error) {
+      } catch {
         console.error('Failed to fetch comments');
       } finally {
         setLoading(false);
@@ -43,7 +43,7 @@ export default function CommentList({ postId }: CommentListProps) {
       try {
         await deleteComment(commentId);
         setComments(comments.filter((comment) => comment.id !== commentId));
-      } catch (error) {
+      } catch {
         alert('Failed to delete comment.');
       }
     }

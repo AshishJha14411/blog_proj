@@ -5,6 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import DOMPurify from "isomorphic-dompurify";
 import { getPostById, updatePost, Post } from "@/services/postService";
 import { sendFeedback } from "@/services/storyService";
+import { getErrorMessage } from "@/lib/errors";
+
+type LengthLabel = "flash" | "short" | "medium" | "long" | "";
 
 export default function EditAIStoryPage() {
   const router = useRouter();
@@ -19,7 +22,7 @@ export default function EditAIStoryPage() {
   const [summary, setSummary] = useState("");
   const [genre, setGenre] = useState("");
   const [tone, setTone] = useState("");
-  const [lengthLabel, setLengthLabel] = useState<"flash"|"short"|"medium"|"long"|"">("");
+  const [lengthLabel, setLengthLabel] = useState<LengthLabel>("");
   const [feedback, setFeedback] = useState("");
 
   // generation/preview
@@ -45,10 +48,10 @@ export default function EditAIStoryPage() {
         setSummary(p.summary || p.header || "");
         setGenre(p.genre || "");
         setTone(p.tone || "");
-        setLengthLabel((p.length_label as any) || "");
+        setLengthLabel((p.length_label as LengthLabel) || "");
         setPreviewHTML(p.content || "");
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.response?.data?.detail || "Failed to load story.");
+      } catch (e) {
+        if (!cancelled) setErr(getErrorMessage(e, "Failed to load story."));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -73,10 +76,29 @@ export default function EditAIStoryPage() {
       // F8: sendFeedback expects a UUID *string* — Number() would produce NaN.
       const updated = await sendFeedback(postId, feedback);
       setPreviewHTML(updated.content || "");
-      setPost((old) => (old ? { ...old, version: updated.version } : updated as any));
+      setPost((old) =>
+        old
+          ? { ...old, version: updated.version }
+          : {
+              ...updated,
+              header: updated.header ?? undefined,
+              cover_image_url: updated.cover_image_url ?? undefined,
+              genre: updated.genre ?? undefined,
+              tone: updated.tone ?? undefined,
+              length_label: updated.length_label ?? undefined,
+              summary: updated.summary ?? undefined,
+              last_feedback: updated.last_feedback ?? undefined,
+              user: { id: updated.user_id, username: "" },
+              tags: [],
+              is_flagged: false,
+              flag_source: "none" as const,
+              is_liked_by_user: updated.is_liked_by_user ?? false,
+              is_bookmarked_by_user: updated.is_bookmarked_by_user ?? false,
+            }
+      );
       setFeedback("");
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail || e.message || "Regeneration failed.");
+    } catch (e) {
+      setErr(getErrorMessage(e, "Regeneration failed."));
     } finally {
       setRegenBusy(false);
     }
@@ -91,11 +113,11 @@ export default function EditAIStoryPage() {
     try {
       await updatePost(postId, {
         title,
-        content: previewHTML,     
-      } as any);
+        content: previewHTML,
+      });
       router.push(`/stories/${postId}`);
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail || "Failed to save.");
+    } catch (e) {
+      setErr(getErrorMessage(e, "Failed to save."));
     }
   }
 
@@ -125,7 +147,7 @@ export default function EditAIStoryPage() {
           </div>
           <div>
             <label className="block text-sm">Length</label>
-            <select className="w-full border rounded p-2" value={lengthLabel} onChange={e=>setLengthLabel(e.target.value as any)}>
+            <select className="w-full border rounded p-2" value={lengthLabel} onChange={e=>setLengthLabel(e.target.value as LengthLabel)}>
               <option value="">—</option>
               <option value="flash">flash</option>
               <option value="short">short</option>

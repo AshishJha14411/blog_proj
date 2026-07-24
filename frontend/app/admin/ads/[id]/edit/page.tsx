@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { fetchAd, adminUpdateAd, AdUpdate } from '@/services/adsService';
 import { useAuth } from '@/hooks/useAuth';
+import { getErrorMessage } from '@/lib/errors';
 
 export default function AdminEditAdPage() {
   const { id } = useParams() as { id: string };
@@ -33,8 +34,8 @@ export default function AdminEditAdPage() {
           weight: ad.weight,
           active: ad.active,
         });
-      } catch (e: any) {
-        setErr(e?.response?.data?.detail || 'Failed to load ad');
+      } catch (e) {
+        setErr(getErrorMessage(e, 'Failed to load ad'));
       } finally {
         setLoading(false);
       }
@@ -42,7 +43,8 @@ export default function AdminEditAdPage() {
   }, [id, isHydrated, user, router]);
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type, checked } = e.target as any;
+    const { name, value, type } = e.target;
+    const checked = (e.target as HTMLInputElement).checked;
     setForm((f) => ({
       ...f,
       [name]: type === 'checkbox' ? checked : value,
@@ -60,8 +62,8 @@ export default function AdminEditAdPage() {
         destination_url: form.destination_url?.trim(),
       });
       router.replace('/admin/ads');
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail || 'Failed to update ad');
+    } catch (e) {
+      setErr(getErrorMessage(e, 'Failed to update ad'));
     } finally {
       setSaving(false);
     }
@@ -126,7 +128,7 @@ export default function AdminEditAdPage() {
             <label className="block text-sm mb-1">Weight</label>
             <input
               name="weight"
-              value={(form.weight as any) ?? 1}
+              value={form.weight ?? 1}
               onChange={onChange}
               className="w-28 rounded border p-2"
               type="number"

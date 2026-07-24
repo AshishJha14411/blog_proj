@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { resetPassword } from '@/services/authService';
+import { getErrorMessage } from '@/lib/errors';
 import AuthCard from '@/components/ui/AuthCard';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -52,8 +53,8 @@ function ResetPasswordForm() {
             await resetPassword({ token, new_password: newPassword });
             setSuccess('Your password has been reset successfully! Redirecting to login...');
             redirectTimer.current = setTimeout(() => router.push('/login'), 3000);
-        } catch (err: any) {
-            setError(err?.message || 'Failed to reset password. The token may be invalid or expired.');
+        } catch (err) {
+            setError(getErrorMessage(err, 'Failed to reset password. The token may be invalid or expired.'));
         } finally {
             setLoading(false);
         }

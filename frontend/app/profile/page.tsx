@@ -10,12 +10,17 @@ import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
 import FormLabel from '@/components/ui/FormLabel';
 
+interface ProfileFormData {
+    bio: string;
+    social_links: { twitter: string; github: string };
+}
+
 export default function ProfilePage() {
     const { user, isHydrated } = useAuth();
     const [isEditing, setIsEditing] = useState(false);
-    
+
     // This state is now ONLY used for the edit form
-    const [formData, setFormData] = useState({ bio: '', social_links: { twitter: '', github: '' } });
+    const [formData, setFormData] = useState<ProfileFormData>({ bio: '', social_links: { twitter: '', github: '' } });
     
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -28,7 +33,10 @@ export default function ProfilePage() {
         if (user) {
             setFormData({
                 bio: user.bio || '',
-                social_links: user.social_links || { twitter: '', github: '' },
+                social_links: {
+                    twitter: user.social_links?.twitter || '',
+                    github: user.social_links?.github || '',
+                },
             });
         }
     }, [user]);
@@ -54,7 +62,7 @@ export default function ProfilePage() {
             useAuthStore.setState({ user: updatedUser });
             setSuccess('Profile picture updated!');
         } catch (err) {
-            setError(err.message || 'Image upload failed.');
+            setError(err instanceof Error ? err.message : 'Image upload failed.');
         } finally {
             setUploading(false);
         }
@@ -71,7 +79,7 @@ export default function ProfilePage() {
             setSuccess('Profile updated successfully!');
             setIsEditing(false);
         } catch (err) {
-            setError(err.message || 'Failed to update profile.');
+            setError(err instanceof Error ? err.message : 'Failed to update profile.');
         } finally {
             setLoading(false);
         }
@@ -82,7 +90,10 @@ export default function ProfilePage() {
         if (user) {
              setFormData({
                 bio: user.bio || '',
-                social_links: user.social_links || { twitter: '', github: '' },
+                social_links: {
+                    twitter: user.social_links?.twitter || '',
+                    github: user.social_links?.github || '',
+                },
             });
         }
         setIsEditing(false);

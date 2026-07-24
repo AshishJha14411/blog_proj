@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getAdsCtr, getSeries, DailyMetric } from "@/services/analyticsService";
+import { getAdsCtr, getSeries, DailyMetric, AdCtrRow } from "@/services/analyticsService";
 import { useModGuard } from "@/hooks/useModGuard";
 
 function iso(d: Date) { return d.toISOString().slice(0,10); }
@@ -11,7 +11,7 @@ export default function AdminAnalyticsPage() {
   const [start, setStart] = useState(iso(new Date(Date.now() - 30*864e5)));
   const [end, setEnd] = useState(iso(new Date()));
   const [series, setSeries] = useState<DailyMetric[]>([]);
-  const [ctrRows, setCtrRows] = useState<any[]>([]);
+  const [ctrRows, setCtrRows] = useState<AdCtrRow[]>([]);
 
   useEffect(() => {
     if (!isMod) return;

@@ -29,7 +29,7 @@ export default function ModQueuePage() {
       <div className="flex gap-2 mb-4">
         <select
           value={params.status || "flagged"}
-          onChange={(e) => setParams((s) => ({ ...s, status: e.target.value as any, offset: 0 }))}
+          onChange={(e) => setParams((s) => ({ ...s, status: e.target.value as ModQueueParams['status'], offset: 0 }))}
           className="border rounded p-2"
         >
           <option value="flagged">Flagged</option>

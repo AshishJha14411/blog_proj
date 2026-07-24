@@ -30,7 +30,7 @@ const { user, isAuthenticated, isHydrated } = useHydratedAuth();
         const postData = await getPostById(postId);
         console.log(postData)
         setPost(postData);
-      } catch (err) {
+      } catch {
         setError('Post not found or you do not have permission to view it.');
       } finally {
         setLoading(false);
