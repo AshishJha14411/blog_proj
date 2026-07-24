@@ -1,4 +1,5 @@
 import pytest
+from app.utils.time import utcnow
 from fastapi import HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
@@ -96,6 +97,30 @@ def test_login_user_not_found(db_session: Session):
         auth.login_user(db_session, data, get_password_hasher())
 
 
+def test_login_disabled_user_rejected(db_session: Session):
+    """A disabled user must not be able to obtain new tokens through login.
+
+    login_user currently returns tokens on password match — this test locks
+    in the correct behavior: disabled accounts should fail authentication.
+    """
+    hasher = get_password_hasher()
+    pw = "password123"
+    user = UserFactory(
+        username="disabled_user",
+        password_hash=hasher.hash(pw),
+        is_disabled=True,
+    )
+    login = LoginRequest(username="disabled_user", password=pw)
+
+    with pytest.raises(HTTPException) as exc_info:
+        auth.login_user(db=db_session, data=login, hasher=hasher)
+    # Either 401 (auth) or 403 (blocked) is acceptable; must NOT be 200.
+    assert exc_info.value.status_code in (401, 403)
+    # Sanity: no successful side-effect. `user` still exists in the DB.
+    db_session.refresh(user)
+    assert user.is_disabled is True
+
+
 # ----------------------------------------------------------------------
 # LOGOUT
 # ----------------------------------------------------------------------
@@ -184,14 +209,14 @@ def test_reset_password_success(db_session: Session):
     user = UserFactory(password_hash=hasher.hash("oldpw"))
     token = PasswordResetToken(
         user_id=user.id,
-        token="token123",
-        expires_at=datetime.utcnow() + timedelta(hours=1),
+        token="token123-valid",  # ≥10 chars: real tokens are 43-char urlsafe strings
+        expires_at=utcnow() + timedelta(hours=1),
         used=False
     )
     db_session.add(token)
     db_session.commit()
 
-    req = ResetPasswordRequest(token="token123", new_password="newpassword")
+    req = ResetPasswordRequest(token="token123-valid", new_password="newpassword")
     res = auth.reset_password(db_session, req, hasher)
     db_session.refresh(user)
 
@@ -204,14 +229,14 @@ def test_reset_password_invalid_or_expired(db_session: Session):
     user = UserFactory()
     expired = PasswordResetTokenFactory(
         user_id=user.id,
-        token="expired",
-        expires_at=datetime.utcnow() - timedelta(hours=1),
+        token="expired-token1",
+        expires_at=utcnow() - timedelta(hours=1),
         used=False,
     )
     db_session.add(expired)
     db_session.commit()
 
-    req = ResetPasswordRequest(token="expired", new_password="newpassword")
+    req = ResetPasswordRequest(token="expired-token1", new_password="newpassword")
     with pytest.raises(HTTPException) as exc:
         auth.reset_password(db_session, req, get_password_hasher())
     assert exc.value.status_code == 400
@@ -229,6 +254,32 @@ def test_refresh_access_success(db_session: Session):
     user_out, tokens = auth.refresh_access(db_session, req)
     assert user_out.id == user.id
     assert "access_token" in tokens.model_dump()
+
+
+def test_refresh_access_rotates_refresh_token(db_session: Session):
+    """W4.3: /auth/refresh must issue a *new* refresh token (rotation) and
+    invalidate the old one. Replaying the old token after rotation must fail."""
+    user = UserFactory()
+    old_refresh = create_refresh_token({"user_id": str(user.id), "type": "refresh"})
+
+    _, tokens = auth.refresh_access(db_session, RefreshTokenRequest(refresh_token=old_refresh))
+
+    # The rotated token must be different from the one we sent in.
+    assert tokens.refresh_token != old_refresh
+
+    # And the old token's JTI must now sit in the blacklist so a replay 401s.
+    old_payload = auth.decode_access_token(old_refresh)
+    revoked = (
+        db_session.query(TokenBlacklist)
+        .filter(TokenBlacklist.jti == old_payload["jti"])
+        .first()
+    )
+    assert revoked is not None, "Old refresh JTI must be blacklisted after rotation"
+
+    # Replay attempt with the old token now fails.
+    with pytest.raises(HTTPException) as exc_info:
+        auth.refresh_access(db_session, RefreshTokenRequest(refresh_token=old_refresh))
+    assert exc_info.value.status_code == 401
 
 
 def test_refresh_access_blacklisted(db_session: Session):
@@ -324,7 +375,7 @@ def test_verify_otp_success(db_session: Session):
     entry = OTPVerification(
         user_id=user.id,
         otp_code=hasher.hash(raw),
-        expires_at=datetime.utcnow() + timedelta(minutes=5),
+        expires_at=utcnow() + timedelta(minutes=5),
         used=False,
     )
     db_session.add(entry); db_session.commit()
@@ -341,7 +392,7 @@ def test_verify_otp_wrong_code_400(db_session: Session):
     entry = OTPVerification(
         user_id=user.id,
         otp_code=hasher.hash("654321"),
-        expires_at=datetime.utcnow() + timedelta(minutes=5),
+        expires_at=utcnow() + timedelta(minutes=5),
         used=False,
     )
     db_session.add(entry); db_session.commit()
@@ -357,7 +408,7 @@ def test_verify_otp_expired_400(db_session: Session):
     entry = OTPVerification(
         user_id=user.id,
         otp_code=hasher.hash("111111"),
-        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        expires_at=utcnow() - timedelta(minutes=1),
         used=False,
     )
     db_session.add(entry); db_session.commit()

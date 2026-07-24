@@ -1,4 +1,5 @@
 import io
+from app.utils.time import utcnow
 import uuid
 import pytest
 from datetime import datetime, timedelta, timezone
@@ -17,16 +18,24 @@ from tests.factories import UserFactory, RoleFactory
 pytestmark = pytest.mark.integration
 
 # ---------------------------------------------------------------------
-# Global no-op rate limiter overrides for this module
+# Global no-op rate limiter overrides for this module.
+# We test the limiter itself elsewhere — here we want auth flows to be
+# untouched by throttling even when a test calls /auth/login 20 times.
 # ---------------------------------------------------------------------
 @pytest.fixture(autouse=True)
 def _disable_rate_limits(client: TestClient):
-    from app.utils.rate_limiter import rate_limit, signup_rate_limiter
-    client.app.dependency_overrides[rate_limit] = lambda: None
-    client.app.dependency_overrides[signup_rate_limiter] = lambda: None
+    from app.utils import rate_limiter as rl
+    limiters = [
+        rl.rate_limit,
+        rl.signup_rate_limiter,
+        rl.login_rate_limiter,
+        rl.forgot_password_rate_limiter,
+    ]
+    for lim in limiters:
+        client.app.dependency_overrides[lim] = lambda: None
     yield
-    client.app.dependency_overrides.pop(rate_limit, None)
-    client.app.dependency_overrides.pop(signup_rate_limiter, None)
+    for lim in limiters:
+        client.app.dependency_overrides.pop(lim, None)
 
 # ---------------------------------------------------------------------
 # Helpers
@@ -68,7 +77,7 @@ def test_signup_conflict_409(client: TestClient, db_session: Session):
     res = client.post("/auth/signup", json={
         "email": "another@example.com",
         "username": "dupe",
-        "password": "abc"
+        "password": "abc12345"  # must satisfy the min-8 policy so we reach the 409, not a 422
     })
     assert res.status_code == 409
 
@@ -102,7 +111,20 @@ def test_refresh_token_from_cookie_success(client: TestClient, db_session: Sessi
     assert res.status_code == 200, res.text
     data = res.json()
     assert "access_token" in data and "refresh_token" in data
-    assert data["refresh_token"] == refresh  # no rotation currently
+    # Rotation: every refresh mints a new token and blacklists the old one.
+    assert data["refresh_token"] != refresh
+    # Replaying the old token must now be rejected. Clear the jar first so
+    # httpx doesn't send BOTH the rotated cookie and the old one (in which
+    # case the domain-matched fresh one wins → 200, a test artifact not a
+    # real replay). Re-set only the old value.
+    client.cookies.clear()
+    client.cookies.set("refresh_token", refresh, path="/auth")
+    replay = client.post("/auth/refresh")
+    assert replay.status_code == 401
+    # Jar-independent proof: rotation must have blacklisted the old JTI.
+    from app.utils.security import decode_access_token
+    old_jti = decode_access_token(refresh)["jti"]
+    assert db_session.query(TokenBlacklist).filter_by(jti=old_jti).count() == 1
 
 def test_refresh_token_missing_cookie_401(client: TestClient):
     res = client.post("/auth/refresh")
@@ -167,7 +189,7 @@ def test_verify_otp_success(client: TestClient, db_session: Session):
     otp_entry = OTPVerification(
         user_id=user.id,
         otp_code=hasher.hash(raw_otp),
-        expires_at=datetime.utcnow() + timedelta(minutes=5),
+        expires_at=utcnow() + timedelta(minutes=5),
         used=False,
     )
     db_session.add(otp_entry); db_session.commit()
@@ -185,7 +207,7 @@ def test_verify_otp_invalid_or_expired(client: TestClient, db_session: Session):
     otp_entry = OTPVerification(
         user_id=user.id,
         otp_code=get_password_hasher().hash("000000"),
-        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        expires_at=utcnow() - timedelta(minutes=1),
         used=False,
     )
     db_session.add(otp_entry); db_session.commit()
@@ -277,7 +299,7 @@ def test_reset_password_happy_path(client: TestClient, db_session: Session):
     token = PasswordResetToken(
         user_id=user.id,
         token="RANDOMTOKEN",
-        expires_at=datetime.utcnow() + timedelta(hours=1),
+        expires_at=utcnow() + timedelta(hours=1),
         used=False,
     )
     db_session.add(token); db_session.commit()

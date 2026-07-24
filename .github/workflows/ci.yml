@@ -2,18 +2,37 @@ name: "Quill & Code CI/CD"
 
 on:
   push:
-    branches: [ "main", "testBranch" ]
+    branches: [ "main", "testBranch", "dev" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
+  # ------------------------------------------------------------------
+  # JOB 0: SECRET SCANNING
+  # Fails the build if committed source contains anything gitleaks
+  # recognises as a credential. Was added after a live Neon password
+  # leaked into tests/conftest.py — do not remove this gate lightly.
+  # ------------------------------------------------------------------
+  gitleaks:
+    name: "Secret Scan (gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0    # gitleaks needs full history for the diff scan
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ------------------------------------------------------------------
   # JOB 1: BACKEND TESTS (Unit & Integration)
   # ------------------------------------------------------------------
   backend-tests:
     name: "Backend Tests"
     runs-on: ubuntu-latest
-    
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -28,13 +47,22 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -49,6 +77,7 @@ jobs:
 
           TEST_DB_BASE: "postgresql://test_user:test_password@localhost:5432/test_db?sslmode=disable"
           DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db?sslmode=disable" # Update this one too
+          REDIS_URL: "redis://localhost:6379/0"
           SECRET_KEY: "testing_secret_key"
           JWT_SECRET_KEY: "testing_jwt_secret_key"
           GOOGLE_API_KEY: "dummy_google_key"
@@ -56,7 +85,7 @@ jobs:
           ADMIN_EMAIL: "admin@system.local"
           ADMIN_PASSWORD: "test_admin_password"
           E2E_TESTING: "true"
-          
+
           # Dummy Config (Required by Pydantic validation)
           PGHOST: "localhost"
           PGDATABASE: "test_db"
@@ -92,10 +121,10 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: 'npm'
@@ -130,19 +159,28 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
 
       - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: 'npm'
@@ -157,7 +195,8 @@ jobs:
       - name: Start Backend Server
         # COPY THE SAME ENV BLOCK FROM BACKEND TESTS HERE
         env:
-          DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db"
+          DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db?sslmode=disable"
+          REDIS_URL: "redis://localhost:6379/0"
           SECRET_KEY: "testing_secret_key"
           JWT_SECRET_KEY: "testing_jwt_secret_key"
           GOOGLE_API_KEY: "dummy_google_key"
@@ -165,7 +204,8 @@ jobs:
           ADMIN_EMAIL: "admin@system.local"
           ADMIN_PASSWORD: "test_admin_password"
           E2E_TESTING: "true"
-          
+          ENVIRONMENT: "test"
+
           # Dummy Config
           PGHOST: "localhost"
           PGDATABASE: "test_db"
@@ -183,20 +223,111 @@ jobs:
           CLOUDINARY_CLOUD_NAME: "dummy_cloud"
           CLOUDINARY_API_KEY: "12345"
           CLOUDINARY_API_SECRET: "abcdef"
-          
+
         run: |
           cd backend
           alembic upgrade head
           python -m app.seed
-          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-          echo "Backend starting..."
-          sleep 10
-      
+          # Log to a file so we can dump it on failure; capture PID so a
+          # crashed uvicorn is caught instead of Cypress timing out later.
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+          echo $! > backend.pid
+          echo "Backend starting (pid=$(cat backend.pid))..."
+          # Poll /healthz for up to 60s.
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/healthz > /dev/null; then
+              echo "Backend is up."
+              exit 0
+            fi
+            if ! kill -0 "$(cat backend.pid)" 2>/dev/null; then
+              echo "::error::Backend crashed before becoming ready."
+              echo "==== backend.log ===="
+              cat backend.log
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::Backend never became ready within 60s."
+          echo "==== backend.log ===="
+          cat backend.log
+          exit 1
+
+      - name: Start Celery Worker
+        # Stories are published asynchronously: POST /stories/ always lands
+        # the row as pending, and moderate_story_task (queued via Redis)
+        # flips it to published/rejected. Without a real worker consuming
+        # that queue, is_published never becomes true and any Cypress spec
+        # that reads back a freshly-created story (reader.cy.ts) times out
+        # waiting for it to appear. COPY THE SAME ENV BLOCK FROM BACKEND
+        # TESTS HERE — the worker imports the same settings as the app.
+        env:
+          DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/test_db?sslmode=disable"
+          REDIS_URL: "redis://localhost:6379/0"
+          SECRET_KEY: "testing_secret_key"
+          JWT_SECRET_KEY: "testing_jwt_secret_key"
+          GOOGLE_API_KEY: "dummy_google_key"
+          ADMIN_USERNAME: "superadmin"
+          ADMIN_EMAIL: "admin@system.local"
+          ADMIN_PASSWORD: "test_admin_password"
+          E2E_TESTING: "true"
+          ENVIRONMENT: "test"
+
+          # Dummy Config
+          PGHOST: "localhost"
+          PGDATABASE: "test_db"
+          PGUSER: "test_user"
+          PGPASSWORD: "test_password"
+          PGSSLMODE: "disable"
+          PGCHANNELBINDING: "disable"
+          MAIL_SERVER: "smtp.example.com"
+          MAIL_PORT: "587"
+          MAIL_USERNAME: "user"
+          MAIL_PASSWORD: "password"
+          MAIL_FROM: "noreply@example.com"
+          MAIL_FROM_NAME: "Test App"
+          FRONTEND_URL: "http://localhost:3000"
+          CLOUDINARY_CLOUD_NAME: "dummy_cloud"
+          CLOUDINARY_API_KEY: "12345"
+          CLOUDINARY_API_SECRET: "abcdef"
+        run: |
+          cd backend
+          celery -A app.worker.celery_app worker --loglevel=info --concurrency=2 > worker.log 2>&1 &
+          echo $! > worker.pid
+          echo "Worker starting (pid=$(cat worker.pid))..."
+          sleep 5
+          if ! kill -0 "$(cat worker.pid)" 2>/dev/null; then
+            echo "::error::Celery worker crashed before becoming ready."
+            echo "==== worker.log ===="
+            cat worker.log
+            exit 1
+          fi
+          echo "Worker is up."
+
       - name: Run Cypress
         uses: cypress-io/github-action@v6
+        env:
+          NEXT_PUBLIC_API_URL: "http://localhost:8000"
         with:
           working-directory: frontend
           start: npm run dev
           wait-on: 'http://localhost:3000'
           wait-on-timeout: 120
           browser: chrome
+
+      - name: Upload Cypress artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-artifacts
+          path: |
+            frontend/cypress/videos
+            frontend/cypress/screenshots
+          if-no-files-found: ignore
+
+      - name: Dump backend log on failure
+        if: failure()
+        run: |
+          echo "==== backend/backend.log ===="
+          cat backend/backend.log || true
+          echo "==== backend/worker.log ===="
+          cat backend/worker.log || true

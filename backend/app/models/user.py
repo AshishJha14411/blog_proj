@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON
+from app.utils.time import utcnow
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -21,8 +22,8 @@ class User(Base):
     total_posts = Column(Integer, default=0)
     total_likes = Column(Integer, default=0)
     total_comments = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     is_disabled = Column(Boolean, default=False)
     role = relationship(Role)

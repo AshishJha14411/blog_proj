@@ -1,6 +1,8 @@
 # tests/unit/services/test_interactions_service.py
 
 import uuid
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -96,12 +98,13 @@ def test_toggle_bookmark_adds_then_removes_and_notifies_other_author(db_session:
     assert r1 is True
     assert db_session.query(Bookmark).filter_by(user_id=keeper.id, story_id=story.id).count() == 1
 
-    # Notification fired to author (note: service currently uses action="liked" for bookmarks too)
+    # G20 regression: bookmarks must notify with action="bookmarked",
+    # not the copy-pasted "liked" that shipped originally.
     assert len(sink.calls) == 1
     n = sink.calls[0]
     assert n["recipient_id"] == author.id
     assert n["actor_id"] == keeper.id
-    assert n["action"] == "liked"          # mirrors current implementation
+    assert n["action"] == "bookmarked"
     assert n["target_type"] == "story"
     assert n["target_id"] == story.id
 
@@ -141,8 +144,52 @@ def test_list_bookmarks_returns_only_current_user_and_in_desc_order(db_session: 
     b3 = Bookmark(user_id=other.id, story_id=s3.id)   # belongs to someone else
     db_session.add(b3); db_session.commit()
 
-    stories = interactions_service.list_bookmarks(db_session, user)
+    total, stories = interactions_service.list_bookmarks(db_session, user)
     ids = [s.id for s in stories]
 
     # should exclude other's bookmark and be ordered newest-first (b2, then b1)
+    assert total == 2
     assert ids == [s2.id, s1.id]
+
+
+# -----------------------
+# W5 soft-delete regressions
+# -----------------------
+
+def test_toggle_like_404_on_soft_deleted_story(db_session: Session):
+    story = StoryFactory()
+    story.deleted_at = datetime.now(timezone.utc)
+    db_session.commit()
+
+    liker = UserFactory(role=RoleFactory(name="user"))
+    with pytest.raises(HTTPException) as exc:
+        interactions_service.toggle_like(db_session, story.id, liker)
+    assert exc.value.status_code == 404
+
+
+def test_toggle_bookmark_404_on_soft_deleted_story(db_session: Session):
+    story = StoryFactory()
+    story.deleted_at = datetime.now(timezone.utc)
+    db_session.commit()
+
+    keeper = UserFactory(role=RoleFactory(name="user"))
+    with pytest.raises(HTTPException) as exc:
+        interactions_service.toggle_bookmark(db_session, story.id, keeper)
+    assert exc.value.status_code == 404
+
+
+def test_list_bookmarks_hides_soft_deleted_stories(db_session: Session):
+    user = UserFactory(role=RoleFactory(name="user"))
+    live = StoryFactory()
+    dead = StoryFactory()
+    dead.deleted_at = datetime.now(timezone.utc)
+    db_session.add_all([
+        Bookmark(user_id=user.id, story_id=live.id),
+        Bookmark(user_id=user.id, story_id=dead.id),
+    ])
+    db_session.commit()
+
+    total, stories = interactions_service.list_bookmarks(db_session, user)
+    ids = {s.id for s in stories}
+    assert total == 1
+    assert ids == {live.id}

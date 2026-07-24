@@ -43,8 +43,12 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)) -> Us
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(require_roles("superadmin"))],
 )
-def admin_list_users(db: Session = Depends(get_db)):
-    return svc_list_users(db)
+def admin_list_users(
+    limit: int = Query(50, gt=0, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return svc_list_users(db, limit=limit, offset=offset)
 
 @router.patch(
     "/users/{user_id}",
@@ -87,8 +91,12 @@ def admin_delete_user(
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(require_roles("superadmin"))],
 )
-def admin_audit_logs(db: Session = Depends(get_db)):
-    logs = svc_list_audit_logs(db)
+def admin_audit_logs(
+    limit: int = Query(50, gt=0, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    logs = svc_list_audit_logs(db, limit=limit, offset=offset)
     return AuditLogList(logs=logs)
 
 # ----------------- CREATOR REQUESTS -----------------

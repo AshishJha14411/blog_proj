@@ -8,6 +8,8 @@ from app.dependencies import get_db, require_roles, get_current_user_optional, g
 from app.models.user import User
 from app.schemas.stories import StoryCreate, StoryUpdate, StoryOut, StoryList, UserSummary, TagSummary, StoryGenerateIn, StoryFeedbackIn
 from app.services import story
+from app.utils.rate_limiter import story_create_rate_limiter, llm_generate_rate_limiter
+from app.utils import cache as story_cache
 
 # --- UNIFIED ROUTER ---
 router = APIRouter(prefix="/stories", tags=["Stories"])
@@ -15,7 +17,12 @@ router = APIRouter(prefix="/stories", tags=["Stories"])
 
 # --- HUMAN-WRITTEN STORY ENDPOINTS ---
 
-@router.post("/", response_model=StoryOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=StoryOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(story_create_rate_limiter)],
+)
 def create_new_story(
     data: StoryCreate,
     db: Session = Depends(get_db),
@@ -23,9 +30,11 @@ def create_new_story(
 ):
     """Creates a new story written by a user."""
     new_story = story.create_story(db, data, current_user)
-    
+    # Cache-aside invalidation: nuke every cached list page + this story's
+    # detail so the next read repopulates. Cheaper than trying to patch.
+    story_cache.invalidate_story(str(new_story.id))
+
     # Manually build the response to ensure all fields and types are correct
-    print(f"this is the tag {new_story.tags}")
     return StoryOut(
         id=str(new_story.id),
         title=new_story.title,
@@ -58,30 +67,36 @@ def list_all_stories(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """Lists all stories, with filters."""
+    """Lists all stories, with filters.
+
+    Cache: anon-only. Logged-in results include per-user like/bookmark flags
+    so caching them would either leak state between users or require a
+    per-user key (unnecessary complexity for a rarely-repeated request).
+    Invalidation happens on any story create/update/delete/publish.
+    """
+    can_cache = current_user is None
+    viewer_key = "anon" if can_cache else f"u:{current_user.id}"
+    key = story_cache.story_list_key(
+        limit=limit,
+        offset=offset,
+        tag=tag,
+        author_id=str(author_id) if author_id else None,
+        viewer=viewer_key,
+    )
+
+    if can_cache:
+        cached = story_cache.get_cached(key)
+        if cached is not None:
+            return StoryList.model_validate(cached)
+
     total, items = story.get_all_stories(db, limit, offset, tag, author_id, current_user)
-    
-    # Manually validate each item to populate computed fields like is_liked_by_user
-    # validated_items = [
-    #     StoryOut(
-    #         id=str(story.id),
-    #         title=story.title,
-    #         content=story.content,
-    #         user_id=str(story.user_id),
-    #         created_at=story.created_at,
-    #         updated_at=story.updated_at,
-    #         header=story.header,
-    #         cover_image_url=story.cover_image_url,
-    #         is_published=story.is_published,
-    #         source=story.source,
-    #         user=UserSummary(id=str(story.user.id), username=story.user.username),
-    #         tags=[TagSummary(id=str(tag.id), name=tag.name) for tag in story.tags],
-    #         is_liked_by_user=getattr(story, 'is_liked_by_user', False),
-    #         is_bookmarked_by_user=getattr(story, 'is_bookmarked_by_user', False)
-    #     ) for story in items
-    # ]
-    validated_items = [StoryOut.model_validate(item,from_attributes=True) for item in items]
-    return StoryList(total=total, limit=limit, offset=offset, items=validated_items)
+    validated_items = [StoryOut.model_validate(item, from_attributes=True) for item in items]
+    response = StoryList(total=total, limit=limit, offset=offset, items=validated_items)
+
+    if can_cache:
+        story_cache.set_cached(key, response.model_dump(mode="json"), story_cache.STORY_LIST_TTL)
+
+    return response
 
 @router.get("/me", response_model=StoryList, status_code=status.HTTP_200_OK)
 def list_my_stories(
@@ -122,7 +137,6 @@ def read_story_details(
 ):
     """Gets the full details of a single story."""
     story_object = story.get_story_details(db, story_id, current_user, request)
-    print(f"sthis story {story_object}")
     return StoryOut(
         id=str(story_object.id),
         title=story_object.title,
@@ -159,6 +173,7 @@ def update_existing_story(
 ):
     """Updates a story owned by the current user."""
     updated_story = story.update_story(db, story_id, data, current_user)
+    story_cache.invalidate_story(str(updated_story.id))
     return StoryOut(
         id=str(updated_story.id),
         title=updated_story.title,
@@ -191,12 +206,18 @@ def delete_existing_story(
 ):
     """Deletes a story owned by the current user."""
     story.delete_story(db, story_id, current_user)
+    story_cache.invalidate_story(str(story_id))
     return None
 
 
 # --- AI STORY GENERATION ENDPOINTS ---
 
-@router.post("/generate", response_model=StoryOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/generate",
+    response_model=StoryOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(llm_generate_rate_limiter)],  # LLM = money
+)
 def generate_ai_story(
     data: StoryGenerateIn,
     db: Session = Depends(get_db),
@@ -216,11 +237,16 @@ def generate_ai_story(
         is_published=new_story.is_published,
         source=new_story.source,
         user=UserSummary(id=str(new_story.user.id), username=new_story.user.username),
-        tags=[TagSummary.from_orm(tag) for tag in new_story.tags]
+        tags=[TagSummary.model_validate(tag) for tag in new_story.tags]
     )
 
 
-@router.post("/{story_id}/feedback", response_model=StoryOut, status_code=status.HTTP_200_OK)
+@router.post(
+    "/{story_id}/feedback",
+    response_model=StoryOut,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(llm_generate_rate_limiter)],  # LLM = money
+)
 def apply_feedback_to_story(
     story_id: uuid.UUID, # Correctly a UUID
     data: StoryFeedbackIn,
@@ -241,7 +267,7 @@ def apply_feedback_to_story(
         is_published=regenerated_story.is_published,
         source=regenerated_story.source,
         user=UserSummary(id=str(regenerated_story.user.id), username=regenerated_story.user.username),
-        tags=[TagSummary.from_orm(tag) for tag in regenerated_story.tags]
+        tags=[TagSummary.model_validate(tag) for tag in regenerated_story.tags]
     )
 
 
@@ -253,6 +279,7 @@ def publish_a_story(
 ):
     """Publishes a story, making it visible to all users."""
     published_story = story.publish_story(db, story_id, current_user)
+    story_cache.invalidate_story(str(published_story.id))
     return StoryOut(
         id=str(published_story.id),
         title=published_story.title,
@@ -285,5 +312,6 @@ def unpublish_a_story(
 ):
     """Unpublishes a story, hiding it from public view."""
     unpublished_story = story.unpublish_story(db, story_id, current_user)
+    story_cache.invalidate_story(str(unpublished_story.id))
     return StoryOut.model_validate(unpublished_story, from_attributes=True)
 

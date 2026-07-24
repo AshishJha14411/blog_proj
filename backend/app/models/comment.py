@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, ForeignKey, Text, DateTime
+from app.utils.time import utcnow
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -11,7 +12,7 @@ class Comment(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     story_id = Column(UUID(as_uuid=True), ForeignKey("stories.id"), nullable=False)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     user = relationship("User", back_populates="comments")
     story = relationship("Story")

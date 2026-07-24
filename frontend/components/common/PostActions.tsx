@@ -20,7 +20,7 @@ export default function PostActions({ postAuthorId, postId, isAI }: PostActionsP
     if (window.confirm('Are you sure you want to delete this post?')) {
       try {
         await deletePost(String(postId));
-        router.push('/stories');
+        router.push('/myposts');
       } catch (err) {
         alert('Failed to delete post.');
       }

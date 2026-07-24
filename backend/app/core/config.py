@@ -30,10 +30,21 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.8"))
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "2048"))
     LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "30"))  # seconds
+
+    # Redis — used by the rate limiter, cache-aside layer, and (future) Celery
+    # broker + WS pub/sub backplane. See UPGRADE_PLAN.md Phase 1.
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    ENVIRONMENT: str = "development"    # host sets ENVIRONMENT=production in prod
     model_config = SettingsConfigDict(
         env_file='.env',
         env_file_encoding='utf-8',
         extra='ignore',                # ignore unknown env vars (prevents “extra_forbidden”)
         case_sensitive=False
     )
+
+    @property
+    def IS_DEV(self) -> bool:
+        return self.ENVIRONMENT.lower() != "production"
+
 settings = Settings()

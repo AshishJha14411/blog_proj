@@ -20,19 +20,20 @@ export default function MyPostsPage() {
       return;
     }
 
-    if (isAuthenticated) {
-      const fetchPosts = async () => {
-        try {
-          const response = await getMyPost();
-          setPosts(response.items);
-        } catch (err) {
-          console.error('Failed to fetch posts');
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchPosts();
-    }
+    if (!isAuthenticated) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await getMyPost();
+        if (!cancelled) setPosts(response.items);
+      } catch {
+        // swallow: the loading state will resolve and the empty view will show
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [isAuthenticated, isHydrated, router]);
 
   if (!isHydrated || loading) {

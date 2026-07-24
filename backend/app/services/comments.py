@@ -10,7 +10,11 @@ from app.models.user import User
 
 def create_comment(db: Session, story_id: uuid.UUID, content: str, current_user: User) -> Comment:
     # --- FIX: Ensure we are querying with a UUID object ---
-    story = db.query(Story).filter(Story.id == story_id).first()
+    story = (
+        db.query(Story)
+        .filter(Story.id == story_id, Story.deleted_at.is_(None))
+        .first()
+    )
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     
@@ -38,7 +42,13 @@ def create_comment(db: Session, story_id: uuid.UUID, content: str, current_user:
 
 def list_comments(db: Session, story_id: uuid.UUID, limit: int, offset: int) -> Tuple[int, List[Comment]]:
     # --- FIX: Ensure we are querying with a UUID object ---
-    query = db.query(Comment).filter(Comment.story_id == story_id).order_by(Comment.created_at.desc())
+    # W5: only surface comments for stories that haven't been soft-deleted.
+    query = (
+        db.query(Comment)
+        .join(Story, Story.id == Comment.story_id)
+        .filter(Comment.story_id == story_id, Story.deleted_at.is_(None))
+        .order_by(Comment.created_at.desc())
+    )
     total = query.count()
     items = query.offset(offset).limit(limit).all()
     return total, items

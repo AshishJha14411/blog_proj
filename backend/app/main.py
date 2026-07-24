@@ -15,6 +15,8 @@ from app.routes.analytics import router as analytics_router
 from app.routes.admin import router as  admin_features_router
 from app.routes.notifications import router as notifications_router
 from app.routes.ads import router as ad_admin_router, public_router as ad_public_router
+from app.ws.routes import router as ws_router
+from app.support.routes import router as support_ws_router
 # Logging utils & middleware
 from app.utils.db_logger import DatabaseLogHandler, PiiScrubbingFilter
 from app.middleware.logging import LoggingMiddleware
@@ -90,6 +92,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 def read_root():
     return {"msg": "It works!"}
 
+
+@app.get("/healthz")
+def healthz():
+    """Liveness probe for CI / docker-compose healthchecks."""
+    return {"status": "ok"}
+
 # Routers
 app.include_router(auth_router)
 app.include_router(posts_router)
@@ -103,4 +111,6 @@ app.include_router(notifications_router)
 app.include_router(ad_admin_router)
 app.include_router(ad_public_router)
 app.include_router(media.router)
-app.include_router(user_action_router) 
+app.include_router(user_action_router)
+app.include_router(ws_router)
+app.include_router(support_ws_router)

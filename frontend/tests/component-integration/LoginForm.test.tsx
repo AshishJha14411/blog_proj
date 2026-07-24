@@ -51,7 +51,13 @@ it('should log in, fetch user, update store, and redirect on success', async () 
   const user = userEvent.setup();
   const mockTokenData = { access_token: 'fake_access_token', refresh_token: 'fake_refresh_token' };
   const mockUserData = { id: '1', username: 'testuser', email: 'test@example.com' };
-  (loginUser as vi.Mock).mockResolvedValue(mockTokenData);
+  // Hold the login promise open so the loading state is observable
+  // deterministically — asserting a transient state against an
+  // instantly-resolving mock is a race (this test used to flake).
+  let resolveLogin!: (value: unknown) => void;
+  (loginUser as vi.Mock).mockImplementation(
+    () => new Promise((resolve) => { resolveLogin = resolve; })
+  );
   (getMe as vi.Mock).mockResolvedValue(mockUserData);
 
   render(<LoginForm />);
@@ -64,12 +70,15 @@ it('should log in, fetch user, update store, and redirect on success', async () 
   await user.type(passwordInput, 'testpass123');
   await user.click(submitButton);
 
-  // Wait for loading/disabled state (matches current UI)
-  await waitFor(() => {
-    expect(submitButton).toBeDisabled();
-    // Optional if you add it in the component:
-    // expect(submitButton).toHaveAttribute('aria-busy', 'true');
-  });
+  // Wait until the submit handler has actually invoked loginUser — only then
+  // is resolveLogin assigned (CI machines schedule the handler later than
+  // local runs, so asserting anything before this point is a race).
+  await waitFor(() => expect(loginUser).toHaveBeenCalledWith('testuser', 'testpass123'));
+
+  // Login promise is pending — loading state must be visible.
+  expect(submitButton).toBeDisabled();
+
+  resolveLogin(mockTokenData);
 
   await waitFor(() => {
     expect(loginUser).toHaveBeenCalledWith('testuser', 'testpass123');

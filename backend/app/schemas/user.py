@@ -13,16 +13,9 @@ class UserOut(BaseModel):
     bio: Optional[str] = None
     # ... add any other fields you want to expose
 
-    # --- THIS IS THE MAGIC ---
-    # We teach Pydantic how to handle the translation to JSON.
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={
-            # Tell Pydantic: "When you find a UUID object,
-            # use the str() function to convert it for JSON."
-            uuid.UUID: str
-        }
-    )
+    # Pydantic v2 serializes UUIDs to strings in JSON mode natively, so no
+    # json_encoders needed (it's deprecated and slated for removal in v3).
+    model_config = ConfigDict(from_attributes=True)
 class UserSummary(BaseModel):
     id: uuid.UUID
     username: str

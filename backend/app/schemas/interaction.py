@@ -10,3 +10,6 @@ class ToggleResponse(BaseModel):
 
 class BookmarkList(BaseModel):
     items: List[StoryOut]
+    total: int = 0
+    limit: int = 10
+    offset: int = 0

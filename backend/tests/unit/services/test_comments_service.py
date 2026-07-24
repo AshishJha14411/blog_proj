@@ -1,6 +1,8 @@
 # tests/unit/services/test_comment_service.py
 
 import uuid
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -149,3 +151,35 @@ def test_delete_comment_404_when_missing(db_session: Session):
     with pytest.raises(HTTPException) as exc:
         comment_service.delete_comment(db_session, comment_id=missing_id, current_user=user)
     assert exc.value.status_code == 404
+
+
+# --- W5 soft-delete regressions ---
+
+def test_create_comment_404_on_soft_deleted_story(db_session: Session):
+    """A soft-deleted story must not accept new comments."""
+    author = UserFactory(role=RoleFactory(name="creator"))
+    story = StoryFactory(user=author)
+    story.deleted_at = datetime.now(timezone.utc)
+    db_session.commit()
+
+    commenter = UserFactory(role=RoleFactory(name="user"))
+    with pytest.raises(HTTPException) as exc:
+        comment_service.create_comment(
+            db_session, story_id=story.id, content="ghost", current_user=commenter,
+        )
+    assert exc.value.status_code == 404
+
+
+def test_list_comments_hides_comments_on_soft_deleted_story(db_session: Session):
+    """Comments on a soft-deleted story shouldn't be visible even if the row exists."""
+    author = UserFactory(role=RoleFactory(name="creator"))
+    story = StoryFactory(user=author)
+    u = UserFactory()
+    comment_service.create_comment(db_session, story.id, "before delete", u)
+
+    story.deleted_at = datetime.now(timezone.utc)
+    db_session.commit()
+
+    total, items = comment_service.list_comments(db_session, story.id, limit=10, offset=0)
+    assert total == 0
+    assert items == []

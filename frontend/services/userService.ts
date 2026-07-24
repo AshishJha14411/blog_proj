@@ -1,16 +1,13 @@
 import axiosInstance from '@/lib/axios';
 import { Post } from './postService'; // Reuse the Post interface
-import { useAuthStore } from '@/stores/authStore';
-import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 interface BookmarksResponse {
-  items: Post[];
+    items: Post[];
 }
 
 export const getMyBookmarks = async (): Promise<BookmarksResponse> => {
-  const response = await axiosInstance.get('/users/me/bookmarks');
-  return response.data;
+    const response = await axiosInstance.get('/users/me/bookmarks');
+    return response.data;
 };
 
 interface Role {
@@ -40,13 +37,7 @@ export interface UserProfile {
  * Updates the current user's text-based profile data (bio, social links).
  */
 export const updateUserProfile = async (data: UserUpdateData): Promise<UserProfile> => {
-    const { accessToken } = useAuthStore.getState();
-    if (!accessToken) throw new Error("User not authenticated");
-    console.log(data,"data above request")
-    const response = await axios.patch(`${API_URL}/auth/me`, data, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    console.log(response, "data below request")
+    const response = await axiosInstance.patch('/auth/me', data);
     return response.data;
 };
 
@@ -55,19 +46,11 @@ export const updateUserProfile = async (data: UserUpdateData): Promise<UserProfi
  * Handles even extremely long filenames automatically.
  */
 export const uploadProfileImage = async (file: File): Promise<UserProfile> => {
-    const { accessToken } = useAuthStore.getState();
-    if (!accessToken) throw new Error("User not authenticated");
-
-    // We must use FormData to send a file.
+    // We must use FormData to send a file. Do NOT set Content-Type — the browser
+    // sets it (with the multipart boundary) automatically.
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await axios.post(`${API_URL}/auth/me/avatar`, formData, {
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            // IMPORTANT: Do NOT set 'Content-Type'. The browser will set it
-            // correctly for FormData, including the boundary.
-        },
-    });
+    const response = await axiosInstance.post('/auth/me/avatar', formData);
     return response.data;
 };

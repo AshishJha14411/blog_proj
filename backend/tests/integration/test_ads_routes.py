@@ -1,5 +1,6 @@
 # tests/integration/test_ads_routes.py
 import uuid
+from app.utils.time import utcnow
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -51,9 +52,9 @@ def test_public_list_ads_paginates_and_sorts_desc(client: TestClient, db_session
     from datetime import datetime, timedelta
 
     # older ad
-    older = AdFactory(created_at=datetime.utcnow() - timedelta(days=1))
+    older = AdFactory(created_at=utcnow() - timedelta(days=1))
     # newer ad
-    newer = AdFactory(created_at=datetime.utcnow())
+    newer = AdFactory(created_at=utcnow())
 
     res = client.get("/ads/", params={"limit": 10, "offset": 0})
     assert res.status_code == 200, res.text

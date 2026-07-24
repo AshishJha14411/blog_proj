@@ -3,11 +3,20 @@
 const randomId = () => `${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`;
 
 describe('Full-Stack Reader E2E Journey', () => {
-  
-  // define variables here so they are accessible to all tests
-  let readerUser: any;
-  let creatorUser: any;
-  
+
+  // Real payloads — spreading `undefined` here would send {} to /auth/signup and 422.
+  // The "creator" substring pairs with the E2E_TESTING auto-promote in services/auth.py.
+  const readerUser = {
+    username: `e2e_reader_${randomId()}`,
+    email: `e2e_reader_${randomId()}@example.com`,
+    password: 'Password123!',
+  };
+  const creatorUser = {
+    username: `e2e_creator_${randomId()}`,
+    email: `e2e_creator_${randomId()}@example.com`,
+    password: 'Password123!',
+  };
+
   const storyToCommentOn = {
     title: `E2E Story for Commenting ${randomId()}`,
     content: 'This is the story we will comment on.',

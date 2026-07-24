@@ -1,9 +1,10 @@
 from __future__ import annotations
+from app.utils.time import utcnow
 from datetime import datetime
 from typing import List, Optional, Tuple
 import uuid
 from fastapi import HTTPException, status, Request
-from sqlalchemy.orm import Session , joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 # Import all necessary models
 from app.models.like import Like
 from app.models.bookmarks import Bookmark
@@ -18,10 +19,20 @@ from app.schemas.stories import StoryCreate, StoryUpdate, StoryGenerateIn, Story
 from app.services.moderation import moderate_content
 from app.llm.adapter import LLMAdapter
 from app.core.config import settings
-from app.services.system import get_automod_user 
+from app.services.system import get_automod_user
+from app.tasks.moderation import moderate_story_task
 # Initialize the LLM Adapter once
 _llm = LLMAdapter()
-# --- STORY CREATION (HUMAN) ---
+
+
+# /** WHY: AI moderation used to run inline and add LLM latency to every
+#     publish. Now the row lands in `pending`, the async task runs the
+#     moderator, and the row flips to `published` / `rejected` when it's
+#     done. Publish latency drops to a DB insert. **/
+# /** WHY-THIS-WAY: enqueue via .delay() — eager-mode in tests, real Redis
+#     queue in prod. Under eager mode the transition happens synchronously
+#     right after the request commits, so integration tests still see the
+#     final state without special-casing. **/
 def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
     tag_objs = []
     allowed_roles = {"creator", "moderator", "admin"}
@@ -30,46 +41,45 @@ def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to create a story."
         )
-    for name in dict.fromkeys(data.tag_names or []): # Use tag_names from the unified schema
+    for name in dict.fromkeys(data.tag_names or []):
         tag = db.query(Tag).filter(Tag.name == name).first()
         if not tag:
             tag = Tag(name=name)
             db.add(tag)
             db.flush()
         tag_objs.append(tag)
-    
-    # Profanity check
-    flagged, cats = moderate_content([data.title, data.content])
-    
+
+    # /** WHY: land the row as `pending` regardless of the client-requested
+    #     `is_published` — the moderation task decides whether it's published
+    #     or rejected. A user can no longer publish unmoderated content by
+    #     racing an upload with a flagged content check. **/
+    wants_publish = bool(data.is_published)
+
     new_story = Story(
         user_id=str(current_user.id),
         title=data.title,
         header=data.header,
         content=data.content,
         cover_image_url=str(data.cover_image_url) if data.cover_image_url else None,
-        is_published=(data.is_published and not flagged),
-        is_flagged=flagged,
-        flag_source="ai" if flagged else "none",
+        is_published=False,       # stays False until moderation approves
+        is_flagged=False,
+        flag_source="none",
         source=ContentSource.user,
-        status=StoryStatus.published if (data.is_published and not flagged) else StoryStatus.draft
+        status=StoryStatus.pending if wants_publish else StoryStatus.draft,
     )
     new_story.tags = tag_objs
     db.add(new_story)
-    db.flush() # Flush to get the new_story.id
+    db.flush()  # get new_story.id
 
-    if flagged:
-        automod_user = get_automod_user(db)
-        db.add(Flag(
-            flagged_by_user_id=automod_user.id,
-            story_id=str(new_story.id),
-            reason="; ".join(cats) or "Profanity detected by AI",
-            status="open",
-        ))
-
-        # db.add(flag)
-        
+    story_id = str(new_story.id)
     db.commit()
     db.refresh(new_story)
+
+    if wants_publish:
+        # Only enqueue when the author actually wants this published. Drafts
+        # skip moderation until the publish action is invoked separately.
+        moderate_story_task.delay(story_id=story_id)
+
     return new_story
 
 # --- STORY CREATION (AI) ---
@@ -118,39 +128,91 @@ def generate_story(db: Session, data: StoryGenerateIn, current_user: User) -> St
     return new_story
 
 # --- READING STORIES ---
+def _populate_interaction_flags(
+    db: Session,
+    items: List[Story],
+    current_user: Optional[User],
+) -> None:
+    """Batch-load like/bookmark flags for a page of stories: 2 queries, not 2N."""
+    if not current_user or not items:
+        for s in items:
+            s.is_liked_by_user = False
+            s.is_bookmarked_by_user = False
+        return
+
+    story_ids = [s.id for s in items]
+    liked = {
+        sid for (sid,) in db.query(Like.story_id).filter(
+            Like.user_id == current_user.id,
+            Like.story_id.in_(story_ids),
+        )
+    }
+    marked = {
+        sid for (sid,) in db.query(Bookmark.story_id).filter(
+            Bookmark.user_id == current_user.id,
+            Bookmark.story_id.in_(story_ids),
+        )
+    }
+    for s in items:
+        s.is_liked_by_user = s.id in liked
+        s.is_bookmarked_by_user = s.id in marked
+
+
 def get_all_stories(db: Session, limit: int, offset: int, tag: Optional[str], author_id: Optional[uuid.UUID], current_user: Optional[User]) -> Tuple[int, List[Story]]:
-    query = db.query(Story).filter(Story.deleted_at == None)
-    if not (current_user and current_user.role.name in ("moderator", "superadmin")):
+    # W7: eager-load user + tags so `StoryOut.model_validate(item)` doesn't lazy-load per row.
+    query = (
+        db.query(Story)
+        .options(joinedload(Story.user), selectinload(Story.tags))
+        .filter(Story.deleted_at.is_(None))
+    )
+    is_mod = bool(current_user and current_user.role.name in ("moderator", "superadmin"))
+    if not is_mod:
+        # /** WHY: `pending` and `rejected` rows must never show up in the
+        #     public list, even before the moderation task finishes running.
+        #     is_published=True is the strongest single filter. **/
         query = query.filter(Story.is_published == True)
     if author_id:
         query = query.filter(Story.user_id == author_id)
     if tag:
         query = query.join(Story.tags).filter(Tag.name == tag)
-        
+
     total = query.count()
     items = query.order_by(Story.created_at.desc()).offset(offset).limit(limit).all()
+    _populate_interaction_flags(db, items, current_user)
     return total, items
 
 def get_user_stories(db: Session, user: User, limit: int, offset: int) -> Tuple[int, List[Story]]:
-    query = db.query(Story).filter(Story.user_id == user.id, Story.deleted_at == None)
+    query = (
+        db.query(Story)
+        .options(joinedload(Story.user), selectinload(Story.tags))
+        .filter(Story.user_id == user.id, Story.deleted_at.is_(None))
+    )
     total = query.count()
     items = query.order_by(Story.created_at.desc()).offset(offset).limit(limit).all()
+    _populate_interaction_flags(db, items, user)
     return total, items
 
 def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[User], request: Request) -> Story:
-    story = db.query(Story).options(joinedload(Story.tags)).filter(Story.id == story_id, Story.deleted_at == None).first()
+    story = (
+        db.query(Story)
+        .options(joinedload(Story.user), selectinload(Story.tags))
+        .filter(Story.id == story_id, Story.deleted_at.is_(None))
+        .first()
+    )
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
-    
+
     if not story.is_published and not (current_user and (story.user_id == current_user.id or current_user.role.name in ("moderator", "superadmin"))):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
-    
+
+    # W7: like/bookmark flags — run each query once, not twice.
     if current_user:
         story.is_liked_by_user = db.query(Like).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
         story.is_bookmarked_by_user = db.query(Bookmark).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
     else:
         story.is_liked_by_user = False
         story.is_bookmarked_by_user = False
+
     # Log the view
     db.add(ViewHistory(
         story_id=story.id, user_id=current_user.id if current_user else None,
@@ -158,14 +220,6 @@ def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[U
     ))
     db.commit()
 
-    # Dynamically set like/bookmark status for the response schema
-    if current_user:
-        story.is_liked_by_user = db.query(Like).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
-        story.is_bookmarked_by_user = db.query(Bookmark).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
-    else:
-        story.is_liked_by_user = False
-        story.is_bookmarked_by_user = False
-        
     return StoryOut(
         id=str(story.id),
         title=story.title,
@@ -188,7 +242,7 @@ def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[U
 
 # --- MODIFYING STORIES ---
 def update_story(db: Session, story_id: uuid.UUID, data: StoryUpdate, current_user: User) -> Story:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
@@ -214,24 +268,24 @@ def update_story(db: Session, story_id: uuid.UUID, data: StoryUpdate, current_us
             ))
 
 
-    story.updated_at = datetime.utcnow()
+    story.updated_at = utcnow()
     db.commit()
     db.refresh(story)
     return story
 
 def delete_story(db: Session, story_id: uuid.UUID, current_user: User) -> None:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
     
-    story.deleted_at = datetime.utcnow()
+    story.deleted_at = utcnow()
     db.commit()
     return {"message": "Story deleted successfully"}
 
 # --- AI-SPECIFIC MODIFICATIONS ---
 def regenerate_with_feedback(db: Session, story_id: uuid.UUID, feedback: str, current_user: User) -> Story:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
@@ -243,7 +297,7 @@ def regenerate_with_feedback(db: Session, story_id: uuid.UUID, feedback: str, cu
     story.version += 1
     story.content = new_text
     story.words_count = _count_words(new_text)
-    story.updated_at = datetime.utcnow()
+    story.updated_at = utcnow()
     story.last_feedback = feedback
     story.is_flagged = flagged
     story.is_published = False
@@ -258,7 +312,7 @@ def regenerate_with_feedback(db: Session, story_id: uuid.UUID, feedback: str, cu
     return story
 
 def publish_story(db: Session, story_id: uuid.UUID, current_user: User) -> Story:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
@@ -267,20 +321,20 @@ def publish_story(db: Session, story_id: uuid.UUID, current_user: User) -> Story
 
     story.is_published = True
     story.status = StoryStatus.published
-    story.updated_at = datetime.utcnow()
+    story.updated_at = utcnow()
     db.commit()
     db.refresh(story)
     return story
 
 def unpublish_story(db: Session, story_id: uuid.UUID, current_user: User) -> Story:
-    story = db.query(Story).get(story_id)
+    story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
 
     story.is_published = False
     story.status = StoryStatus.generated
-    story.updated_at = datetime.utcnow()
+    story.updated_at = utcnow()
     db.commit()
     db.refresh(story)
     return story

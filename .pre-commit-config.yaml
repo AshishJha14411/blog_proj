@@ -1,0 +1,46 @@
+# .pre-commit-config.yaml
+#
+# One-time setup (per clone):
+#   pip install pre-commit
+#   pre-commit install
+#
+# After that, every `git commit` runs these checks against the staged diff.
+# CI runs a stricter version — this is the fast local gate that stops secrets
+# and obvious junk from leaving your machine.
+
+repos:
+  # ---- Secret scanning (matches the CI gitleaks job) -----------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: Scan staged diff for secrets
+
+  # ---- Basic hygiene -------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(.*\.md|.*\.snap)$
+      - id: end-of-file-fixer
+      - id: check-yaml
+        # docker-compose.yml uses !env-like tags occasionally; keep it lax.
+        args: ["--allow-multiple-documents"]
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ["--fix=lf"]     # keeps CRLF from creeping in from Windows editors
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+
+  # ---- Python: syntax + basic lint on staged .py files ---------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-ast
+        files: ^blog_proj/backend/.*\.py$
+      - id: debug-statements
+        # Catches leftover `breakpoint()` / `pdb.set_trace()` before it ships.
+        files: ^blog_proj/backend/.*\.py$

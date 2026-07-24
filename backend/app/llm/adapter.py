@@ -1,6 +1,6 @@
 # app/llm/adapter.py
 from __future__ import annotations
-from typing import Tuple
+from typing import Iterator, Tuple
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.core.config import settings
@@ -23,7 +23,16 @@ def _get_gemini_model(model_name: str):
     return _genai.GenerativeModel(model_name)
 
 class LLMError(RuntimeError):
-    pass
+    """Base LLM failure — includes retryable network/5xx cases."""
+
+
+class LLMRetryableError(LLMError):
+    """Only network/timeouts/5xx should live under this class."""
+
+
+# Cap the prompt size to keep token cost from blowing up on pathological inputs.
+_MAX_PROMPT_CHARS = 20_000
+
 
 class LLMAdapter:
     """
@@ -39,7 +48,8 @@ class LLMAdapter:
         reraise=True,
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
-        retry=retry_if_exception_type(LLMError),
+        # Only retry on the retryable subclass — bad key / quota / policy should fail fast.
+        retry=retry_if_exception_type(LLMRetryableError),
     )
     def generate(
         self,
@@ -55,12 +65,96 @@ class LLMAdapter:
         max_tokens = settings.LLM_MAX_TOKENS if max_tokens is None else int(max_tokens)
         timeout = settings.LLM_TIMEOUT if timeout is None else float(timeout)
 
+        if prompt and len(prompt) > _MAX_PROMPT_CHARS:
+            raise LLMError(f"Prompt too long: {len(prompt)} > {_MAX_PROMPT_CHARS}")
+
         if self.provider == "google":
             return self._generate_gemini(prompt, model, temperature, max_tokens, timeout)
         elif self.provider == "openai":
             return self._generate_openai(prompt, model, temperature, max_tokens, timeout)
         else:
             raise LLMError(f"Unsupported LLM_PROVIDER: {self.provider}")
+
+    def generate_stream(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[str]:
+        """
+        /** WHY: chat UX dies at ~2 seconds of blank space. Streaming lets
+            us push characters as they arrive so the user sees output almost
+            immediately. Phase 4 support chatbot depends on this. **/
+
+        /** WHAT: yields text chunks. The final chunk is followed by the
+            iterator terminating; callers relay each chunk over the WS as a
+            `{type:"delta"}` frame and send `{type:"done"}` when this ends. **/
+
+        /** WHY-THIS-WAY: no retry decorator here — streaming failures
+            mid-response are user-visible; retrying after emitting half a
+            reply would produce garbled output. Callers should abort and
+            escalate to a human instead. **/
+        """
+        model = model or settings.LLM_MODEL
+        temperature = settings.LLM_TEMPERATURE if temperature is None else float(temperature)
+        max_tokens = settings.LLM_MAX_TOKENS if max_tokens is None else int(max_tokens)
+        timeout = settings.LLM_TIMEOUT if timeout is None else float(timeout)
+
+        if prompt and len(prompt) > _MAX_PROMPT_CHARS:
+            raise LLMError(f"Prompt too long: {len(prompt)} > {_MAX_PROMPT_CHARS}")
+
+        if self.provider == "google":
+            yield from self._stream_gemini(prompt, model, temperature, max_tokens, timeout)
+        elif self.provider == "openai":
+            yield from self._stream_openai(prompt, model, temperature, max_tokens, timeout)
+        else:
+            raise LLMError(f"Unsupported LLM_PROVIDER: {self.provider}")
+
+    # ------------------ Streaming: Gemini ------------------
+    def _stream_gemini(self, prompt, model, temperature, max_tokens, timeout) -> Iterator[str]:
+        try:
+            model_obj = _get_gemini_model(model)
+            resp = model_obj.generate_content(
+                prompt,
+                generation_config={"temperature": temperature, "max_output_tokens": max_tokens},
+                stream=True,
+                request_options={"timeout": timeout},
+            )
+            for chunk in resp:
+                text = getattr(chunk, "text", "") or ""
+                if text:
+                    yield text
+        except Exception as e:
+            raise LLMError(f"Gemini streaming error: {e}")
+
+    # ------------------ Streaming: OpenAI ------------------
+    def _stream_openai(self, prompt, model, temperature, max_tokens, timeout) -> Iterator[str]:
+        try:
+            client = _get_openai_client()
+            resp = client.chat.completions.create(
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": "You are a helpful support assistant."},
+                    {"role": "user", "content": prompt},
+                ],
+                timeout=timeout,
+                stream=True,
+            )
+            for event in resp:
+                # OpenAI streams `choices[0].delta.content` per chunk.
+                try:
+                    delta = event.choices[0].delta.content
+                except (AttributeError, IndexError, TypeError):
+                    delta = None
+                if delta:
+                    yield delta
+        except Exception as e:
+            raise LLMError(f"OpenAI streaming error: {e}")
 
     # ------------------ Google (Gemini) ------------------
     def _generate_gemini(self, prompt: str, model: str, temperature: float, max_tokens: int, timeout: float) -> Tuple[str, str]:
@@ -71,11 +165,11 @@ class LLMAdapter:
                 "temperature": temperature,
                 "max_output_tokens": max_tokens,
             }
-            # Gemini Python SDK doesn’t expose a direct timeout per call; rely on HTTP default.
             resp = model_obj.generate_content(
                 prompt,
                 generation_config=generation_config,
                 safety_settings=None,  # keep defaults; you can add custom tuning here
+                request_options={"timeout": timeout},
             )
             # Extract text and a best-effort message id
             text = getattr(resp, "text", "") or ""

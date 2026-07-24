@@ -1,7 +1,7 @@
 // src/app/reset-password/page.tsx
 
 'use client';
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { resetPassword } from '@/services/authService';
 import AuthCard from '@/components/ui/AuthCard';
@@ -19,11 +19,21 @@ function ResetPasswordForm() {
     const searchParams = useSearchParams();
     const token = searchParams.get('token');
 
+    // Track the redirect timer so we can cancel it if the user navigates away
+    // before the 3s countdown completes.
+    const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(() => {
         if (!token) {
             setError('Invalid or missing password reset token in URL.');
         }
     }, [token]);
+
+    useEffect(() => {
+        return () => {
+            if (redirectTimer.current) clearTimeout(redirectTimer.current);
+        };
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -41,9 +51,9 @@ function ResetPasswordForm() {
         try {
             await resetPassword({ token, new_password: newPassword });
             setSuccess('Your password has been reset successfully! Redirecting to login...');
-            setTimeout(() => router.push('/login'), 3000);
-        } catch (err) {
-            setError(err.message || 'Failed to reset password. The token may be invalid or expired.');
+            redirectTimer.current = setTimeout(() => router.push('/login'), 3000);
+        } catch (err: any) {
+            setError(err?.message || 'Failed to reset password. The token may be invalid or expired.');
         } finally {
             setLoading(false);
         }

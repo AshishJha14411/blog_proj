@@ -1,5 +1,6 @@
 # tests/unit/services/test_story_service.py
 import uuid
+from app.utils.time import utcnow
 from datetime import datetime, timedelta
 import pytest
 
@@ -69,55 +70,52 @@ def test_create_story_permission_denied_for_user_role(db_session: Session):
     assert "permission" in str(exc.value).lower()
 
 
-def test_create_story_success_for_creator_role(db_session: Session, monkeypatch):
+def test_create_story_lands_in_pending_and_enqueues_moderation(db_session: Session):
+    """
+    /** WHY: after the AI-moderation-to-Celery migration, create_story no
+        longer runs moderation inline. Its job now is: persist the row as
+        `pending`, enqueue the async task, return. The task decides the
+        final state. **/
+    """
     creator = _allow_creator()
-
-    # moderation -> clean
-    monkeypatch.setattr(story_service, "moderate_content", lambda contents: (False, []))
 
     payload = StoryCreate(
         title="My Story",
         header="Intro",
         content="<p>Hello world</p>",
-        tag_names=["scifi", "drama", "scifi"],  # duplicate to test idempotent tag link
+        tag_names=["scifi", "drama", "scifi"],
         is_published=True,
     )
 
     created = story_service.create_story(db_session, payload, creator)
     assert isinstance(created, Story)
     assert created.title == "My Story"
-    assert created.is_published is True
-    assert created.status == StoryStatus.published
+    assert created.is_published is False
+    assert created.status == StoryStatus.pending
     assert created.source == ContentSource.user
 
-    # Tags: two unique ones created/linked
     names = sorted([t.name for t in created.tags])
     assert names == ["drama", "scifi"]
 
-    # re-run with same tags should not duplicate Tag rows
+    # Idempotent tag reuse: the same names don't create new Tag rows.
     before = db_session.query(Tag).count()
     story_service.create_story(db_session, payload, creator)
     after = db_session.query(Tag).count()
-    assert after == before  # no new Tag rows created
+    assert after == before
 
 
-def test_create_story_flagged_creates_flag_and_unpublishes(db_session: Session, monkeypatch):
+def test_create_story_as_draft_stays_draft(db_session: Session):
+    """
+    /** WHY: `is_published=False` means the author isn't ready to publish;
+        moderation must not run yet. Status stays `draft`. **/
+    """
     creator = _allow_creator()
-    monkeypatch.setattr(story_service, "moderate_content", lambda _: (True, ["profanity"]))
-
     payload = StoryCreate(
-        title="Bad Story",
-        content="spoopy content",
-        tag_names=["spooky"],
-        is_published=True,
+        title="Draft", content="body", tag_names=[], is_published=False,
     )
     created = story_service.create_story(db_session, payload, creator)
     assert created.is_published is False
-    assert created.is_flagged is True
-    assert created.flag_source == FlagSource.ai
-
-    # A Flag record should exist for this story
-    assert db_session.query(Flag).filter_by(story_id=str(created.id), status="open").count() == 1
+    assert created.status == StoryStatus.draft
 
 
 # -----------------------
@@ -177,6 +175,53 @@ def test_generate_story_flagged_sets_generated_and_flag(db_session: Session, mon
     assert created.is_flagged is True
 
 
+# --- LLM error paths (previously untested — every one used to 500) ---
+
+def test_generate_story_502_on_empty_llm_response(db_session: Session, monkeypatch):
+    """Empty text from the LLM must surface as a 502, not silently persist as a story."""
+    creator = _allow_creator()
+
+    monkeypatch.setattr(
+        story_service._llm, "generate",
+        lambda *a, **k: ("   ", "msg_empty"),
+    )
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        story_service.generate_story(
+            db_session, StoryGenerateIn(prompt="anything"), creator,
+        )
+    assert exc.value.status_code == 502
+
+
+def test_generate_story_bubbles_llm_error(db_session: Session, monkeypatch):
+    """A raised LLMError from the adapter must reach the caller — the retry
+    wrapper should not swallow it after exhausting attempts."""
+    creator = _allow_creator()
+
+    from app.llm.adapter import LLMError
+
+    def boom(*a, **k):
+        raise LLMError("provider down")
+
+    monkeypatch.setattr(story_service._llm, "generate", boom)
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    with pytest.raises(LLMError):
+        story_service.generate_story(
+            db_session, StoryGenerateIn(prompt="anything"), creator,
+        )
+
+
+def test_generate_story_prompt_cap_is_enforced_at_schema_layer():
+    """Schema-level cap keeps 25k-char prompts out of the pipeline entirely."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        StoryGenerateIn(prompt="x" * 25_000)
+
+
 # -----------------------
 # LISTING / FILTERS
 # -----------------------
@@ -198,6 +243,16 @@ def test_get_all_stories_visibility_and_filters(db_session: Session, monkeypatch
         StoryCreate(title="Draft B", content="...", tag_names=["beta"], is_published=False),
         _allow_creator(),
     )
+
+    # create_story always lands a story as pending/unpublished — the actual
+    # publish flip happens in moderate_story_task, which is stubbed out for
+    # every test (tests/conftest.py::_stub_moderate_story_task) so it doesn't
+    # open a second DB session outside this test's transaction. Simulate a
+    # clean moderation pass on s1 directly, since this test is about
+    # get_all_stories' visibility filtering, not the moderation pipeline.
+    s1.is_published = True
+    s1.status = StoryStatus.published
+    db_session.commit()
 
     # Regular sees only published
     total, items = story_service.get_all_stories(db_session, limit=10, offset=0, tag=None, author_id=None, current_user=user_regular)
@@ -278,6 +333,60 @@ def test_get_story_details_404_rules_and_flags(db_session: Session, monkeypatch)
     out3 = story_service.get_story_details(db_session, s.id, author, _ReqStub())
     assert out3.is_liked_by_user is True
     assert out3.is_bookmarked_by_user is True
+
+
+def test_get_story_details_404_when_soft_deleted(db_session: Session, monkeypatch):
+    """W5 regression: a soft-deleted story must 404 even to its own author,
+    otherwise unpublish/delete-then-share becomes a data leak."""
+    author = _allow_creator()
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    s = story_service.create_story(
+        db_session,
+        StoryCreate(title="doomed", content="body", tag_names=["x"], is_published=True),
+        author,
+    )
+    s.deleted_at = utcnow()
+    db_session.commit()
+
+    with pytest.raises(Exception) as exc:
+        story_service.get_story_details(db_session, s.id, author, _ReqStub())
+    from fastapi import HTTPException
+    assert isinstance(exc.value, HTTPException) and exc.value.status_code == 404
+
+
+def test_get_all_stories_hides_soft_deleted(db_session: Session, monkeypatch):
+    """Soft-deleted stories must not appear in the public list either."""
+    author = _allow_creator()
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    live = story_service.create_story(
+        db_session,
+        StoryCreate(title="alive", content="body", tag_names=[], is_published=True),
+        author,
+    )
+    dead = story_service.create_story(
+        db_session,
+        StoryCreate(title="gone", content="body", tag_names=[], is_published=True),
+        author,
+    )
+    # create_story always lands as pending/unpublished — the real publish
+    # flip happens in moderate_story_task, stubbed out in every test (see
+    # tests/conftest.py::_stub_moderate_story_task). Simulate a clean
+    # moderation pass on `live` directly since this test is about the
+    # soft-delete filter, not the moderation pipeline.
+    live.is_published = True
+    live.status = StoryStatus.published
+    dead.deleted_at = utcnow()
+    db_session.commit()
+
+    total, items = story_service.get_all_stories(
+        db_session, limit=10, offset=0, tag=None, author_id=None, current_user=None,
+    )
+    ids = {s.id for s in items}
+    assert live.id in ids
+    assert dead.id not in ids
+    assert total == 1
 
 
 # -----------------------

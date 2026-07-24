@@ -7,10 +7,11 @@ import Link from 'next/link';
 export default async function PostsByTagPage({
   params,
 }: {
-  params: { tagName: string };
+  params: Promise<{ tagName: string }>;
 }) {
   // The tagName from the URL is automatically decoded
-  const tagName = decodeURIComponent(params.tagName);
+  const { tagName: rawTagName } = await params;
+  const tagName = decodeURIComponent(rawTagName);
   const { items: posts } = await getAllPosts(10, 0, tagName);
 
   // console.log(posts)

@@ -181,6 +181,81 @@ def test_moderation_logs_descending(client: TestClient, db_session: Session):
         assert ts == sorted(ts, reverse=True)
 
 
+def test_moderation_logs_schema_matches_model(client: TestClient, db_session: Session):
+    """W6 regression: `AuditLogOut` used to declare int ids + a `details` field
+    that didn't exist on the model, so this endpoint 500'd whenever there were
+    real audit rows. Now the schema uses UUID ids + before_state/after_state —
+    this test seeds a real row and asserts the response actually validates."""
+    import app.services.admin as admin_service
+    from tests.factories import UserFactory, RoleFactory
+
+    _ensure_role(db_session, "user")
+    _ensure_role(db_session, "creator")
+    moderator = UserFactory(role=RoleFactory(name="moderator"))
+    target = UserFactory(role=RoleFactory(name="user"))
+    actor = UserFactory(role=RoleFactory(name="superadmin"))
+
+    # This helper writes an AuditLog row internally.
+    admin_service.update_user(
+        db_session,
+        user_id=target.id,
+        is_disabled=True,
+        actor_id=actor.id,
+    )
+
+    client.app.dependency_overrides[moderator_or_superadmin] = _override_require_roles(moderator)
+    try:
+        res = client.get("/analytics/moderation", params={"limit": 5, "offset": 0})
+    finally:
+        client.app.dependency_overrides.pop(moderator_or_superadmin, None)
+
+    assert res.status_code == 200, res.text
+    logs = res.json()["logs"]
+    assert len(logs) >= 1, "seeded audit log should be visible"
+
+    row = next(l for l in logs if l["action"] == "update_user")
+
+    # Schema shape: id + actor are UUID strings, not ints.
+    uuid.UUID(row["id"])                # raises if malformed
+    uuid.UUID(row["actor_user_id"])     # raises if malformed
+
+    # target_id is a stringified UUID (or None), never an int.
+    assert isinstance(row["target_id"], (str, type(None)))
+    if row["target_id"] is not None:
+        uuid.UUID(row["target_id"])
+
+    # after_state carries the diff dict; the removed `details` field must be absent.
+    assert "details" not in row
+    assert isinstance(row["after_state"], dict)
+    assert row["after_state"].get("is_disabled") is True
+
+
+def test_moderation_logs_pagination_limits_page_size(client: TestClient, db_session: Session):
+    """W5 regression: /analytics/moderation now takes limit/offset. limit=1
+    must never return more than one row even with many audit entries in the DB."""
+    import app.services.admin as admin_service
+    from tests.factories import UserFactory, RoleFactory
+
+    _ensure_role(db_session, "user")
+    moderator = UserFactory(role=RoleFactory(name="moderator"))
+    actor = UserFactory(role=RoleFactory(name="superadmin"))
+
+    for _ in range(3):
+        t = UserFactory(role=RoleFactory(name="user"))
+        admin_service.update_user(
+            db_session, user_id=t.id, is_disabled=True, actor_id=actor.id,
+        )
+
+    client.app.dependency_overrides[moderator_or_superadmin] = _override_require_roles(moderator)
+    try:
+        res = client.get("/analytics/moderation", params={"limit": 1, "offset": 0})
+    finally:
+        client.app.dependency_overrides.pop(moderator_or_superadmin, None)
+
+    assert res.status_code == 200, res.text
+    assert len(res.json()["logs"]) == 1
+
+
 # ----------------- /analytics/clicks -----------------
 
 def test_clicks_daily_dense_and_sorted(client: TestClient, db_session: Session):

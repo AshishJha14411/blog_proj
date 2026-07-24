@@ -89,10 +89,13 @@ def get_flags_breakdown(db: Session) -> Dict[str, int]:
     return {"total": total, "ai_flags": ai_count, "human_flags": human_count}
 
 
-def get_moderation_logs(db: Session) -> List[AuditLog]:
+def get_moderation_logs(db: Session, limit: int = 50, offset: int = 0) -> List[AuditLog]:
+    # W5: bounded — audit-log tables grow forever, no request should ever fetch all.
     return (
         db.query(AuditLog)
         .order_by(AuditLog.timestamp.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
 

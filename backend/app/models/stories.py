@@ -1,7 +1,8 @@
 from sqlalchemy import (
-    Column, Integer, String, Boolean, ForeignKey, DateTime, 
+    Column, Integer, String, Boolean, ForeignKey, DateTime,
     Text, Enum, Float
 )
+from app.utils.time import utcnow
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -21,7 +22,15 @@ class ContentSource(enum.Enum):
     user = "user"
 
 class StoryStatus(enum.Enum):
+    """
+    /** WHY: adds `pending` for stories awaiting the async moderation task
+        (UPGRADE_PLAN Phase 2 AI moderation migration). Existing values keep
+        their meanings — the state machine is now:
+            created  → pending  → published | rejected
+            AI-gen'd → generated → (as above once publish_now is set)  **/
+    """
     draft = "draft"
+    pending = "pending"       # awaiting AI moderation
     generated = "generated"
     published = "published"
     rejected = "rejected"
@@ -52,8 +61,8 @@ class Story(Base):
     status = Column(Enum(StoryStatus), default=StoryStatus.draft, index=True)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at = Column(DateTime, nullable=True, index=True)
     
     # Relationships

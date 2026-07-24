@@ -1,5 +1,6 @@
 # app/models/story_revision.py
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
+from app.utils.time import utcnow
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -18,6 +19,6 @@ class StoryRevision(Base):
     model_name = Column(String, nullable=True)
     provider_message_id = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     story = relationship("Story", back_populates="revisions")

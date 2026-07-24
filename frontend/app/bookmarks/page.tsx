@@ -22,20 +22,22 @@ export default function BookmarksPage() {
       return;
     }
 
-    // Only fetch if the user is authenticated
-    if (isAuthenticated) {
-      const fetchBookmarks = async () => {
-        try {
-          const response = await getMyBookmarks();
-          setBookmarkedPosts(response.items);
-        } catch (err) {
-          setError('Failed to fetch your bookmarks.');
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchBookmarks();
-    }
+    if (!isAuthenticated) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await getMyBookmarks();
+        if (!cancelled) setBookmarkedPosts(response.items);
+      } catch {
+        if (!cancelled) setError('Failed to fetch your bookmarks.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    // Cleanup gates all setState calls so a rapid unmount / re-nav doesn't
+    // trigger React's "state update on unmounted component" warning.
+    return () => { cancelled = true; };
   }, [isAuthenticated, isHydrated, router]);
 
   if (!isHydrated || loading) {

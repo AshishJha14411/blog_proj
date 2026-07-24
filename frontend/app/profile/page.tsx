@@ -179,7 +179,7 @@ export default function ProfilePage() {
                 <div className="pt-4 flex items-center gap-4">
                     {isEditing ? (
                         <>
-                            <Button type="submit" onClick={handleSave} disabled={loading}> {loading ? 'Saving...' : 'Save Changes'} </Button>
+                            <Button type="submit" disabled={loading}> {loading ? 'Saving...' : 'Save Changes'} </Button>
                             <Button variant="secondary" type="button" onClick={handleCancel}> Cancel </Button>
                         </>
                     ) : (

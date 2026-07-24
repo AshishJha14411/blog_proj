@@ -1,5 +1,6 @@
 # tests/integration/test_admin_routes.py
 import uuid
+from app.utils.time import utcnow
 import pytest
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -107,11 +108,11 @@ def test_admin_audit_logs_requires_superadmin_and_sorts_desc(client: TestClient,
     # seed a couple logs
     db_session.add(AuditLog(
         actor_user_id=admin.id, action="a1", target_type="user", target_id=str(admin.id),
-        after_state={}, timestamp=datetime.utcnow()
+        after_state={}, timestamp=utcnow()
     ))
     db_session.add(AuditLog(
         actor_user_id=admin.id, action="a2", target_type="user", target_id=str(admin.id),
-        after_state={}, timestamp=datetime.utcnow()
+        after_state={}, timestamp=utcnow()
     ))
     db_session.commit()
 

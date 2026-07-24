@@ -4,6 +4,7 @@ from typing import Optional, Tuple, List
 from uuid import UUID
 
 from app.models.notification import Notification
+from app.ws.manager import publish as ws_publish
 
 
 def notify(
@@ -16,7 +17,11 @@ def notify(
     target_id: Optional[UUID] = None,
 ) -> Notification:
     """
-    Create and persist a notification record.
+    /** WHY: every event that used to write a row now ALSO fans out over
+        the WebSocket. Phase 3 turns the bell from polling into push. **/
+    /** WHY-THIS-WAY: publish AFTER commit — if the DB write fails we don't
+        want to notify a socket for an event that never happened. If the
+        publish fails we log and continue (see ws.manager.publish). **/
     """
     n = Notification(
         recipient_id=recipient_id,
@@ -29,6 +34,19 @@ def notify(
     db.add(n)
     db.commit()
     db.refresh(n)
+
+    ws_publish(
+        str(recipient_id),
+        {
+            "type": "notification",
+            "id": str(n.id),
+            "action": action,
+            "actor_id": str(actor_id) if actor_id else None,
+            "target_type": target_type,
+            "target_id": str(target_id) if target_id else None,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        },
+    )
     return n
 
 
@@ -38,7 +56,6 @@ def list_my_notifications(db: Session, user_id: UUID, limit: int, offset: int, u
         q = q.filter(Notification.is_read.is_(False))
 
     total = q.with_entities(func.count()).scalar()  # or q.count()
-    print(f"User Id is {user_id}")
     items = (
         q.options(selectinload(Notification.actor))   # <-- if you’ll expose actor
          .order_by(desc(Notification.created_at))
@@ -46,7 +63,6 @@ def list_my_notifications(db: Session, user_id: UUID, limit: int, offset: int, u
          .limit(limit)
          .all()
     )
-    print(f"from the service of notification {total}, {items}")
     return total, items
 
 

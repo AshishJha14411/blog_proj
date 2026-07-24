@@ -1,5 +1,6 @@
+import uuid
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from datetime import date, datetime
 
 class DayCount(BaseModel):
@@ -18,12 +19,13 @@ class FlagsBreakdown(BaseModel):
     human_flags: int
 
 class AuditLogOut(BaseModel):
-    id: int
-    actor_user_id: int
+    id: uuid.UUID
+    actor_user_id: uuid.UUID
     action: str
-    target_type: str
-    target_id: int
-    details: str
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    before_state: Optional[dict] = None
+    after_state: Optional[dict] = None
     timestamp: datetime
 
     class Config:

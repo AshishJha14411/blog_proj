@@ -8,8 +8,12 @@ from app.services.auth import  change_password, create_user, login_user, logout_
 from app.dependencies import get_db, get_password_hasher, get_mailer,get_current_user
 from app.models.user import User
 from app.utils.cloudinary import upload_file
-from app.utils.rate_limiter import rate_limit
-from app.utils.rate_limiter import signup_rate_limiter 
+from app.utils.rate_limiter import (
+    rate_limit,
+    signup_rate_limiter,
+    login_rate_limiter,
+    forgot_password_rate_limiter,
+)
 from app.schemas.auth import GoogleLoginRequest,LoginResponse
 from app.services.auth import handle_google_login
 from fastapi import Response, Cookie
@@ -22,7 +26,7 @@ from app.core.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-IS_DEV = settings.FRONTEND_URL.startswith("http://")
+IS_DEV = settings.IS_DEV
 
 COOKIE_SECURE   = not IS_DEV                # Secure only in prod
 COOKIE_SAMESITE = "none" if not IS_DEV else "lax"
@@ -77,14 +81,19 @@ def signup(
     return LoginResponse(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
-        user=UserProfile.from_orm(user)
+        user=UserProfile.model_validate(user)
     )
 
-@router.post("/login",response_model=TokenPair,status_code=status.HTTP_200_OK)
+@router.post(
+    "/login",
+    response_model=TokenPair,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(login_rate_limiter)],
+)
 def login(data: LoginRequest, response: Response,db: Session=Depends(get_db), hasher = Depends(get_password_hasher)):
      user, tokens= login_user(db,data,hasher)
      set_refresh_cookie(response, tokens.refresh_token)
-     return LoginResponse(access_token=tokens.access_token, refresh_token=tokens.refresh_token, user=UserProfile.from_orm(user))
+     return LoginResponse(access_token=tokens.access_token, refresh_token=tokens.refresh_token, user=UserProfile.model_validate(user))
 
      
 
@@ -100,10 +109,7 @@ def logout(
         token_to_revoke = authorization.split(" ", 1)[1].strip()
 
     if token_to_revoke:
-        print("[logout] blacklisting refresh token")
         logout_user(db, token_to_revoke)
-    else:
-        print("[logout] no refresh token provided via cookie or header")
 
     clear_refresh_cookie(response)  # expire the cookie
     return MessageResponse(message="You have been successfully logged out.")
@@ -124,13 +130,14 @@ def refresh_token(
         # If blacklisted/invalid, clear cookie so you don’t keep retrying a dead token
         clear_refresh_cookie(response)
         raise
-    # We don't set a new refresh cookie unless we're rotating tokens
-    # set_refresh_cookie(response, new_tokens.refresh_token)
-    
+
+    # Rotation: emit the freshly-minted refresh token as the new HttpOnly cookie.
+    set_refresh_cookie(response, new_tokens.refresh_token)
+
     return LoginResponse(
         access_token=new_tokens.access_token,
         refresh_token=new_tokens.refresh_token,
-        user=UserProfile.from_orm(user)
+        user=UserProfile.model_validate(user)
     )
     
     
@@ -217,7 +224,7 @@ def upload_avatar(
 
     # 3. Return the updated user profile
     # We use the explicit pattern to avoid validation errors.
-    return UserOut.from_orm(current_user)
+    return UserOut.model_validate(current_user)
 
 @router.patch("/me/password",status_code=status.HTTP_200_OK)
 
@@ -232,7 +239,12 @@ def patch_users_me_password(
 
 
 
-@router.post("/forgot-password", response_model=MessageResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(forgot_password_rate_limiter)],  # B15: mail-flood guard
+)
 def request_password_reset(
     data: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,

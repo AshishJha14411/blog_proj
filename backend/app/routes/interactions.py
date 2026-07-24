@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 import uuid # Import uuid for type hinting
 from typing import List
@@ -30,11 +30,13 @@ def bookmark_story(
 
 @router.get("/users/me/bookmarks", response_model=BookmarkList, status_code=status.HTTP_200_OK)
 def get_my_bookmarks(
+    limit: int = Query(10, gt=0, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
 ):
-    bookmarked_stories = list_bookmarks(db, current_user)
-    
+    total, bookmarked_stories = list_bookmarks(db, current_user, limit=limit, offset=offset)
+
     # Apply the same explicit conversion pattern to fix the UUID -> str issue
     validated_items = [
         StoryOut(
@@ -48,12 +50,12 @@ def get_my_bookmarks(
             cover_image_url=story.cover_image_url,
             is_published=story.is_published,
             source=story.source,
-              user=UserSummary(
-            id=str(story.user.id),
-            username=story.user.username
-        ),
-            tags=[TagSummary.from_orm(tag) for tag in story.tags]
+            user=UserSummary(
+                id=str(story.user.id),
+                username=story.user.username,
+            ),
+            tags=[TagSummary(id=str(tag.id), name=tag.name) for tag in story.tags],
         ) for story in bookmarked_stories
     ]
-    
-    return BookmarkList(items=validated_items)
+
+    return BookmarkList(items=validated_items, total=total, limit=limit, offset=offset)

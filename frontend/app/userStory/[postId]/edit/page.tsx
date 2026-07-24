@@ -38,7 +38,7 @@ export default function EditPostPage() {
     setError('');
     try {
       await updatePost(params.postId, { title, content });
-      router.push(`/posts/${params.postId}`); // Redirect back to the post
+      router.push(`/userStory/${params.postId}`); // Redirect back to the post
     } catch (err) {
       setError('Failed to update post.');
     }

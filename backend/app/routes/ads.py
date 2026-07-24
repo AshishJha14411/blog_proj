@@ -32,7 +32,7 @@ def list_ads(
     offset: int = Query(0, ge=0)
 ):
     """Lists all active ads with pagination."""
-    total, items = ads.list_ads(db, limit, offset)
+    total, items = ads.list_ads(db, limit, offset, active_only=True)
     return AdList(total=total, limit=limit, offset=offset, items=items)
 
 @public_router.get("/{ad_id}", response_model=AdOut)
@@ -41,7 +41,7 @@ def get_ad(ad_id: uuid.UUID, db: Session = Depends(get_db)):
     ad = ads.get_ad(db, ad_id)
     if not ad:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
-    return AdOut.from_orm(ad)
+    return AdOut.model_validate(ad)
 
 
 # --- Admin-Only Routes ---
@@ -50,7 +50,7 @@ def get_ad(ad_id: uuid.UUID, db: Session = Depends(get_db)):
 def admin_create_ad(data: AdCreate, db: Session = Depends(get_db)):
     """Admin endpoint to create a new ad."""
     new_ad = ads.create_ad(db, data)
-    return AdOut.from_orm(new_ad)
+    return AdOut.model_validate(new_ad)
 
 @router.patch("/{ad_id}", response_model=AdOut)
 def admin_update_ad(ad_id: uuid.UUID, data: AdUpdate, db: Session = Depends(get_db)):
@@ -58,7 +58,7 @@ def admin_update_ad(ad_id: uuid.UUID, data: AdUpdate, db: Session = Depends(get_
     updated_ad = ads.update_ad(db, ad_id, data)
     if not updated_ad:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
-    return AdOut.from_orm(updated_ad)
+    return AdOut.model_validate(updated_ad)
 
 @router.delete("/{ad_id}", status_code=status.HTTP_204_NO_CONTENT)
 def admin_delete_ad(ad_id: uuid.UUID, db: Session = Depends(get_db)):

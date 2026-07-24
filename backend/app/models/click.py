@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Numeric
+from app.utils.time import utcnow
 from sqlalchemy.dialects.postgresql import UUID, INET
 from app.core.database import Base
 from datetime import datetime
@@ -27,7 +28,7 @@ class Click(Base):
     session_id = Column(String, nullable=True, index=True)
     
     # --- CONTEXT ---
-    clicked_at = Column(DateTime, default=datetime.utcnow, index=True)
+    clicked_at = Column(DateTime, default=utcnow, index=True)
     # The IP address of the user. Good for geolocation and fraud detection.
     ip_address = Column(String(45), nullable=True) 
     # The user's browser/client information.

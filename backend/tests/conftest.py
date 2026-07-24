@@ -21,7 +21,7 @@ from alembic import command
 # 0) LOCK TEST ENV BEFORE IMPORTING APP
 # ------------------------------------------------------------------
 # A real test DB, distinct from dev DB. Per-worker DB supported (xdist).
-BASE_TEST_DB = os.getenv("TEST_DB_BASE", "postgresql://neondb_owner:npg_n1B5bOyugWFL@ep-flat-hill-a1sx47lq.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'")
+BASE_TEST_DB = os.getenv("TEST_DB_BASE", "postgresql://test_user:test_password@localhost:5432/quill_test")
 
 # Signal “test mode” to app (tweak cookie flags, disable background sends, etc.)
 os.environ.setdefault("ENV", "test")
@@ -56,7 +56,7 @@ def _db_url_for_worker(base_url: str, worker_id: str | None) -> str:
     else:
         url = url.set(database=dbname)
 
-    if not (url.database and (url.database.startswith("quill_test") or url.database == "neondb")):
+    if not (url.database and url.database.startswith("quill_test")):
         raise RuntimeError(f"Refusing to run tests on non-test DB: {url.database}")
     return str(url)
 
@@ -89,10 +89,32 @@ def db_engine():
     # Store schema name in an attribute for backward compatibility
     setattr(engine, "_test_schema", schema_name)
 
+    # `search_path` is a per-connection (session-level) Postgres setting, not
+    # an engine-wide one. Setting it once on the single connection used below
+    # only isolates *that* connection — db_session's db_engine.connect() can
+    # hand back any other pooled connection (default pool_size=5), which
+    # would still have the default `public` search_path and silently read/
+    # write the real public schema instead of this isolated one. A `connect`
+    # event fires for every physical DBAPI connection the pool ever creates,
+    # so this is what actually makes every connection isolated, not just one.
+    @event.listens_for(engine, "connect")
+    def _set_search_path(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f'SET search_path TO "{schema_name}", public')
+        cursor.close()
+
     with engine.begin() as conn:
         conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
         conn.execute(text(f'SET search_path TO "{schema_name}", public'))
-        Base.metadata.create_all(conn)
+        # checkfirst=False: the default checkfirst=True probes table
+        # existence through the connection's search_path, which finds the
+        # REAL app tables already sitting in `public` (from migrations/seed
+        # run outside tests) and concludes each table "already exists" —
+        # skipping creation in `{schema_name}` entirely. The schema name is
+        # freshly randomized above, so it's guaranteed empty; no need to
+        # check first, and skipping the check is what makes tables actually
+        # get created here instead of silently falling through to `public`.
+        Base.metadata.create_all(conn, checkfirst=False)
 
     yield engine
 
@@ -230,9 +252,22 @@ class DummyMailer:
     def __init__(self):
         self.outbox: list[dict] = []
 
-    def send_email(self, to: str, subject: str, html: str):
+    # /** WHY: signature must match app/utils/email.py::Mailer.send_email
+    #     (to_email/subject/body). The Celery email task calls those exact
+    #     kwargs; if this drifts, every signup/reset test blows up with
+    #     TypeError instead of asserting on outbox contents. **/
+    def send_email(self, to_email: str, subject: str, body: str):
         self.outbox.append(
-            {"to": to, "subject": subject, "html": html, "ts": datetime.now(timezone.utc).isoformat()}
+            {
+                # Keep both keys so existing tests that read `to`/`html` still
+                # work AND the new task-shaped keys are available.
+                "to": to_email,
+                "to_email": to_email,
+                "subject": subject,
+                "html": body,
+                "body": body,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
         )
 
 # Helper to execute queued background tasks
@@ -345,6 +380,129 @@ def stub_llm(monkeypatch):
     def _fake_generate(self, prompt, *, model=None, temperature=None, max_tokens=None, timeout=None):
         return ("<h1>Fake title</h1><p>Fake body.</p>", "fake-msg-id")
     monkeypatch.setattr(LLMAdapter, "generate", _fake_generate)
+
+
+# ------------------------------------------------------------------
+#  REDIS (fakeredis) — Phase 1 of UPGRADE_PLAN
+# ------------------------------------------------------------------
+# We swap the shared Redis client for an in-memory fake per test. This lets
+# rate-limiter and cache tests run without a real Redis service — CI does
+# spin one up (see .github/workflows/ci.yml) but the majority of tests
+# don't care about it, and depending on a network daemon in every unit
+# test is a fragile default.
+
+@pytest.fixture(autouse=True)
+def fake_redis():
+    import fakeredis
+    from app.core import redis as redis_module
+
+    fake = fakeredis.FakeRedis(decode_responses=True)
+    redis_module.set_redis_client(fake)
+    try:
+        yield fake
+    finally:
+        fake.flushall()
+        redis_module.reset_redis_client()
+
+
+# ------------------------------------------------------------------
+#  CELERY EAGER MODE — Phase 2 of UPGRADE_PLAN
+# ------------------------------------------------------------------
+# `.delay()` normally puts a message on the broker for a worker to pick up.
+# In tests we don't want to spin up a worker — `task_always_eager=True`
+# runs the task synchronously in the calling thread instead. Combined with
+# `task_eager_propagates=True`, exceptions raised in a task propagate to
+# the caller, which is what test assertions need.
+#
+# Also: patch `_mailer_for_worker` inside the email task module so tests
+# can still assert on `dummy_mailer.outbox` — the task calls this helper
+# to build its SMTP client, and we substitute the dummy per test.
+
+@pytest.fixture(autouse=True)
+def _stub_moderate_story_task(monkeypatch):
+    """
+    /** WHY: story_service.create_story enqueues moderate_story_task.delay()
+        on every publish. Under eager mode the task would actually run and
+        open a fresh SessionLocal() that writes outside the test's SAVEPOINT
+        — leaking rows across tests and pointing at prod DB during CI setup. **/
+    /** WHAT: replace the task binding at the enqueue site with a no-op.
+        Tests that want to exercise the task itself import the real symbol
+        directly (see tests/unit/tasks/test_moderation_task.py). **/
+    """
+    from app.services import story as story_service
+
+    class _NoOpTask:
+        def delay(self, **kwargs):
+            return None
+        def apply(self, **kwargs):
+            return None
+        def apply_async(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(story_service, "moderate_story_task", _NoOpTask())
+
+
+@pytest.fixture(autouse=True)
+def celery_eager(dummy_mailer):
+    """
+    /** WHY: run Celery tasks synchronously in tests. Otherwise `.delay()`
+        enqueues a message that never runs — every email-sending assertion
+        would silently do nothing. **/
+    /** WHY-THIS-WAY: eager mode is documented as "lies about serialization
+        and retry behavior" for integration purposes — that's fine here
+        because we have separate tests that exercise retry logic directly
+        (see tests/unit/tasks/test_email_task.py). **/
+    """
+    from app.worker import celery_app
+    from app.tasks import email as email_task
+
+    prev_eager = celery_app.conf.task_always_eager
+    prev_propagate = celery_app.conf.task_eager_propagates
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = True
+
+    original_mailer_factory = email_task._mailer_for_worker
+    email_task._mailer_for_worker = lambda: dummy_mailer
+    try:
+        yield
+    finally:
+        celery_app.conf.task_always_eager = prev_eager
+        celery_app.conf.task_eager_propagates = prev_propagate
+        email_task._mailer_for_worker = original_mailer_factory
+
+
+# ------------------------------------------------------------------
+#  DISABLE RATE LIMITERS BY DEFAULT
+# ------------------------------------------------------------------
+# The rate limiter itself is tested in
+# tests/unit/test_rate_limiter.py and tests/integration/test_rate_limit_routes.py.
+# Every other test would just have to work around throttling — cheaper to
+# turn the limiters off globally and let the dedicated tests re-enable
+# them by not requesting this fixture (they don't).
+#
+# Individual test modules can opt back in by deleting their entries from
+# `app.dependency_overrides` before the request under test.
+
+@pytest.fixture(autouse=True)
+def _disable_all_rate_limiters(client):
+    from app.utils import rate_limiter as rl
+    limiters = [
+        rl.rate_limit,
+        rl.signup_rate_limiter,
+        rl.login_rate_limiter,
+        rl.forgot_password_rate_limiter,
+        rl.story_create_rate_limiter,
+        rl.llm_generate_rate_limiter,
+        rl.comment_create_rate_limiter,
+        rl.flag_rate_limiter,
+    ]
+    for lim in limiters:
+        client.app.dependency_overrides[lim] = lambda: None
+    try:
+        yield
+    finally:
+        for lim in limiters:
+            client.app.dependency_overrides.pop(lim, None)
 
 # ------------------------------------------------------------------
 #  SEED FAKER (DETERMINISTIC FACTORY DATA)
