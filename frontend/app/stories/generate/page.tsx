@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
-import { generateStory, StoryGenerateIn } from "@/services/storyService";
-import { getErrorMessage } from "@/lib/errors";
+import { generateStoryStream, StoryGenerateIn } from "@/services/storyService";
 
 export default function GenerateStoryPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [streamText, setStreamText] = useState("");
 
   const [form, setForm] = useState<StoryGenerateIn>({
     title: "",
@@ -21,7 +20,11 @@ export default function GenerateStoryPage() {
     cover_image_url: "",
     publish_now: false,
     temperature: 0.8,
-    model_name: "gemini-2.5-pro",
+    // No hardcoded model here — let the backend's LLM_MODEL setting decide
+    // (app/llm/adapter.py falls back to it when model is unset). Two
+    // independently-hardcoded model names — one here, one in .env — is
+    // exactly how this broke: neither matched, and only this one was ever
+    // actually used, silently masking the other.
   });
 
   const onChange = <K extends keyof StoryGenerateIn>(k: K, v: StoryGenerateIn[K]) =>
@@ -29,14 +32,15 @@ export default function GenerateStoryPage() {
 
 async function onSubmit(e: React.FormEvent) {
   e.preventDefault();
-  setLoading(true);
-  setErr(null);
 
   if (!form.prompt?.trim()) {
     setErr("Prompt is required");
-    setLoading(false);
     return;
   }
+
+  setLoading(true);
+  setErr(null);
+  setStreamText("");
 
   const payload: StoryGenerateIn = {
     ...form,
@@ -48,19 +52,18 @@ async function onSubmit(e: React.FormEvent) {
     tone: form.tone?.trim() || null
   };
 
-  try {
-    const created = await generateStory(payload);
-    router.push(`/stories/${created.id}`);
-  } catch (e) {
-    const detail = axios.isAxiosError(e) ? e.response?.data?.detail : undefined;
-    if (Array.isArray(detail)) {
-      setErr((detail as Array<{ msg: string }>).map((d) => d.msg).join(", "));
-    } else {
-      setErr(getErrorMessage(e, "Failed to generate"));
-    }
-  } finally {
-    setLoading(false);
-  }
+  await generateStoryStream(payload, {
+    onDelta: (text) => setStreamText((prev) => prev + text),
+    onDone: ({ story_id }) => {
+      // The story is saved. Navigate to it (it may be `pending` moderation
+      // briefly if publish_now was set — the author can view their own).
+      router.push(`/stories/${story_id}`);
+    },
+    onError: (message) => {
+      setErr(message);
+      setLoading(false);
+    },
+  });
 }
 
 
@@ -72,6 +75,22 @@ async function onSubmit(e: React.FormEvent) {
       {err && (
         <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
           {err}
+        </div>
+      )}
+
+      {/* Live streaming preview — appears as soon as text starts arriving. */}
+      {loading && (
+        <div className="rounded-md border border-gray-200 bg-white p-4">
+          <div className="mb-2 text-sm font-medium text-gray-500 flex items-center gap-2">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-500" />
+            {streamText ? "Writing your story…" : "Warming up…"}
+          </div>
+          <div
+            className="prose prose-sm max-w-none max-h-[50vh] overflow-y-auto"
+            // Live preview of the author's own generation; the final story
+            // page sanitizes with DOMPurify before public display.
+            dangerouslySetInnerHTML={{ __html: streamText || "<p class='text-gray-400'>…</p>" }}
+          />
         </div>
       )}
 

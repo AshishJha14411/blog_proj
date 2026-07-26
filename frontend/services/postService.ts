@@ -35,7 +35,7 @@ export interface Post {
     genre?: string;
     tone?: string;
     length_label?: string; // e.g., "short", "medium", "long"
-    status?: 'draft' | 'generated' | 'published' | 'rejected';
+    status?: 'draft' | 'pending' | 'generated' | 'published' | 'rejected';
     version?: number;
     last_feedback?: string;
 }

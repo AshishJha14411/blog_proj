@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY")
     OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.8"))
-    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "2048"))
-    LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "30"))  # seconds
+    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "8192"))
+    LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "120"))  # seconds — long stories need it
 
     # Redis — used by the rate limiter, cache-aside layer, and (future) Celery
     # broker + WS pub/sub backplane. See UPGRADE_PLAN.md Phase 1.

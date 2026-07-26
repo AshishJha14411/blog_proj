@@ -146,8 +146,11 @@ def test_generate_story_success_publishes_when_clean_and_publish_now(db_session:
 
     created = story_service.generate_story(db_session, data, creator)
     assert isinstance(created, Story)
-    assert created.is_published is True
-    assert created.status == StoryStatus.published
+    # Moderation is now deferred to moderate_story_task (stubbed in tests),
+    # so a publish_now generation lands as `pending` — the same async flow as
+    # create_story. The publish/reject flip is covered in test_moderation_task.
+    assert created.is_published is False
+    assert created.status == StoryStatus.pending
     assert created.provider_message_id == "msg_123"
     assert created.source == ContentSource.ai
 
@@ -158,21 +161,26 @@ def test_generate_story_success_publishes_when_clean_and_publish_now(db_session:
     assert "stars" in (revs[0].prompt or "")
 
 
-def test_generate_story_flagged_sets_generated_and_flag(db_session: Session, monkeypatch):
+def test_generate_story_without_publish_now_stays_generated(db_session: Session, monkeypatch):
+    """publish_now=False → rests as `generated`, unpublished, no moderation.
+
+    Inline flagging was removed when generate_story moved to the async
+    moderation flow. Content flagging now happens in moderate_story_task
+    (only enqueued on publish), covered in test_moderation_task.py.
+    """
     creator = _allow_creator()
 
     monkeypatch.setattr(
         story_service._llm,
         "generate",
-        lambda *a, **k: ("<h1>Bad</h1><p>bad words</p>", "msg_bad"),
+        lambda *a, **k: ("<h1>Draft</h1><p>body</p>", "msg_draft"),
     )
-    monkeypatch.setattr(story_service, "moderate_content", lambda _: (True, ["toxicity"]))
 
-    data = StoryGenerateIn(prompt="any", publish_now=True)
+    data = StoryGenerateIn(prompt="any", publish_now=False)
     created = story_service.generate_story(db_session, data, creator)
     assert created.is_published is False
-    assert created.status in (StoryStatus.generated, StoryStatus.draft)
-    assert created.is_flagged is True
+    assert created.status == StoryStatus.generated
+    assert created.is_flagged is False
 
 
 # --- LLM error paths (previously untested — every one used to 500) ---

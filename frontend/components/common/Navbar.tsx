@@ -95,6 +95,21 @@ export default function Navbar() {
                 </>
               )}
 
+              {/* Moderator/superadmin-only nav — previously had no links at
+                  all to these pages anywhere in the app. */}
+              {(user?.role?.name === 'moderator' || user?.role?.name === 'superadmin') && (
+                <>
+                  <Link href="/admin/mod/queue" className="mx-2 text-[var(--text-on-dark)] hover:text-[var(--accent-primary)]">Mod Queue</Link>
+                  <Link href="/admin/analytics" className="mx-2 text-[var(--text-on-dark)] hover:text-[var(--accent-primary)]">Analytics</Link>
+                </>
+              )}
+              {user?.role?.name === 'superadmin' && (
+                <>
+                  <Link href="/admin/requests" className="mx-2 text-[var(--text-on-dark)] hover:text-[var(--accent-primary)]">Creator Requests</Link>
+                  <Link href="/admin/ads" className="mx-2 text-[var(--text-on-dark)] hover:text-[var(--accent-primary)]">Ads</Link>
+                </>
+              )}
+
               <Link href="/bookmarks" className="mx-2 text-[var(--text-on-dark)] hover:text-[var(--accent-primary)]">Bookmarks</Link>
               <Link href="/profile" className="mx-2 text-[var(--text-on-dark)] hover:text-[var(--accent-primary)]">Profile</Link>
               <button onClick={handleLogout} className="ml-2 rounded-md px-3 py-2 text-sm bg-[var(--accent-primary)] text-black hover:bg-[var(--accent-primary-light)] transition-colors">Log Out</button>

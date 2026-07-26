@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends, status, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import json
+import logging
 import uuid
+
+logger = logging.getLogger("app")
 
 # Import all dependencies and the unified schemas/services
 from app.dependencies import get_db, require_roles, get_current_user_optional, get_current_user
@@ -45,6 +50,7 @@ def create_new_story(
         header=new_story.header,
         cover_image_url=new_story.cover_image_url,
         is_published=new_story.is_published,
+        status=new_story.status,
         source=new_story.source,
         # user=UserSummary.from_orm(new_story.user),
         tags=[
@@ -118,6 +124,7 @@ def list_my_stories(
             header=story.header,
             cover_image_url=story.cover_image_url,
             is_published=story.is_published,
+            status=story.status,
             source=story.source,
             user=UserSummary(id=str(story.user.id), username=story.user.username),
             tags=[TagSummary(id=str(tag.id), name=tag.name) for tag in story.tags],
@@ -147,8 +154,9 @@ def read_story_details(
         header=story_object.header,
         cover_image_url=story_object.cover_image_url,
         is_published=story_object.is_published,
+        status=story_object.status,
         source=story_object.source,
-        
+
         # Explicitly build the nested UserSummary
         user=UserSummary(
             id=str(story_object.user.id),
@@ -184,6 +192,7 @@ def update_existing_story(
         header=updated_story.header,
         cover_image_url=updated_story.cover_image_url,
         is_published=updated_story.is_published,
+        status=updated_story.status,
         source=updated_story.source,
         # user=UserSummary.from_orm(new_story.user),
         tags=[
@@ -223,7 +232,7 @@ def generate_ai_story(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("creator", "moderator", "superadmin")),
 ):
-    """Generates a new story using an AI model."""
+    """Generates a new story using an AI model (non-streaming, one-shot)."""
     new_story = story.generate_story(db, data, current_user)
     return StoryOut(
         id=str(new_story.id),
@@ -235,9 +244,80 @@ def generate_ai_story(
         header=new_story.header,
         cover_image_url=new_story.cover_image_url,
         is_published=new_story.is_published,
+        status=new_story.status,
         source=new_story.source,
         user=UserSummary(id=str(new_story.user.id), username=new_story.user.username),
         tags=[TagSummary.model_validate(tag) for tag in new_story.tags]
+    )
+
+
+def _sse(payload: dict) -> str:
+    """Format one Server-Sent Event frame."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+@router.post(
+    "/generate/stream",
+    dependencies=[Depends(llm_generate_rate_limiter)],
+)
+def generate_ai_story_stream(
+    data: StoryGenerateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("creator", "moderator", "superadmin")),
+):
+    """Streams AI story generation over Server-Sent Events.
+
+    Frames sent to the client:
+      {"type":"delta","text":"..."}                 a chunk of story text
+      {"type":"done","story_id","status","title"}   generation complete + saved
+      {"type":"error","message"}                    something failed
+
+    Streaming both fixes the long-generation timeout wall (data flows
+    continuously instead of one 2-minute request) and gives the user live
+    feedback. The story is persisted only after the full text arrives, using
+    the same finalize/moderation path as the non-streaming route.
+    """
+    prompt = story.build_generation_prompt(data)
+
+    def event_stream():
+        collected: list[str] = []
+        try:
+            for chunk in story._llm.generate_stream(
+                prompt, model=data.model_name, temperature=data.temperature
+            ):
+                collected.append(chunk)
+                yield _sse({"type": "delta", "text": chunk})
+
+            full_text = "".join(collected)
+            if not full_text.strip():
+                yield _sse({"type": "error", "message": "The model returned an empty story."})
+                return
+
+            new_story = story.finalize_generated_story(
+                db, data, current_user, story_text=full_text, msg_id="gemini-stream"
+            )
+            story_cache.invalidate_story(str(new_story.id))
+            yield _sse({
+                "type": "done",
+                "story_id": str(new_story.id),
+                "status": new_story.status.value if new_story.status else None,
+                "title": new_story.title,
+            })
+        except Exception:
+            # Never leak internals to the client; the DB log handler captures
+            # the full traceback server-side.
+            logger.exception("stream generation failed")
+            db.rollback()
+            yield _sse({"type": "error", "message": "Story generation failed. Please try again."})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            # Disable proxy buffering so chunks reach the browser immediately.
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

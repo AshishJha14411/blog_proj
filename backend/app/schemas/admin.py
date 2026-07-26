@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, computed_field
 
+from app.schemas.user import UserSummary
+
 
 # ----------------- Role -----------------
 
@@ -74,7 +76,8 @@ class CreatorRequestCreate(BaseModel):
 class CreatorRequestOut(BaseModel):
     id: UUID
     user_id: UUID
-    reason: str
+    user: UserSummary
+    reason: Optional[str] = None
     status: str  # RequestStatus enum serialized as string
     created_at: datetime
     reviewed_by_id: Optional[UUID] = None
