@@ -51,5 +51,12 @@ RUN dos2unix /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 # Set the entrypoint
 ENTRYPOINT ["/bin/sh","/app/entrypoint.sh"]
 
-# Default command
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Default command.
+# --proxy-headers + --forwarded-allow-ips=* : Cloud Run terminates TLS and
+# forwards to the container over plain HTTP with X-Forwarded-Proto: https.
+# Without trusting that header, uvicorn thinks it's on http and builds
+# redirect Location URLs as http:// — which an https frontend blocks as mixed
+# content (e.g. the trailing-slash 307 on list endpoints). Trusting the
+# forwarded proto makes redirects come back https. Safe on Cloud Run: only
+# Google's front end can reach the container port.
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "*"]
