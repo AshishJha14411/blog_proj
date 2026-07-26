@@ -1,6 +1,6 @@
 import api from "@/lib/axios";
 
-export type StoryStatus = "draft" | "generated" | "published" | "rejected";
+export type StoryStatus = "draft" | "pending" | "generated" | "published" | "rejected";
 
 export interface ModQueueParams {
   status?: StoryStatus | "flagged" | "";
