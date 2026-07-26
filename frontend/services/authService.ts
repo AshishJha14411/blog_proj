@@ -1,5 +1,6 @@
 import axiosInstance from '../lib/axios';
 import { UserProfile } from './userService';
+import { useAuthStore } from '@/stores/authStore';
 
 interface LoginResponse {
     access_token: string;
@@ -87,14 +88,17 @@ export const handleGoogleLogin = async (code: string) => {
 
 interface RefreshResponse {
     access_token: string;
+    refresh_token: string;
     user: UserProfile;
 }
 
 /**
- * Calls the backend's refresh endpoint. The browser's HttpOnly cookie is sent automatically.
- * If successful, returns a new access token and the user's profile.
+ * Calls the backend's refresh endpoint. Sends the stored refresh token in the
+ * body (the HttpOnly cookie is also sent when same-site, but on a split-domain
+ * deploy it's a blocked third-party cookie — the body is the reliable path).
  */
 export const refreshSession = async (): Promise<RefreshResponse> => {
-    const response = await axiosInstance.post('/auth/refresh');
+    const refreshToken = useAuthStore.getState().refreshToken;
+    const response = await axiosInstance.post('/auth/refresh', { refresh_token: refreshToken });
     return response.data;
 };

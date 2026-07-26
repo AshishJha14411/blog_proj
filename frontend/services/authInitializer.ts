@@ -28,14 +28,15 @@ export function AuthInitializer() {
 
     (async () => {
       try {
-        const { access_token, user } = await refreshSession();
+        const { access_token, refresh_token, user } = await refreshSession();
         useAuthStore.getState().login({
           accessToken: access_token,
-          refreshToken: '',
+          // Store the rotated refresh token so the NEXT reload can refresh too.
+          refreshToken: refresh_token,
           user,
         });
       } catch {
-        // Refresh cookie is gone/expired — treat this session as ended.
+        // Refresh token is gone/expired/rejected — treat this session as ended.
         useAuthStore.getState().logout();
       }
     })();
