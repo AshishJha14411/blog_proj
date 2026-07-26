@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks,Query, UploadFile, File,Response,Cookie,Header
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.schemas.auth import PasswordChangeRequest, SignUpRequest, SignUpResponse, LoginRequest, RefreshTokenRequest, TokenPair, MessageResponse, UserProfile, UserUpdate,VerifyOtpRequest,RoleOut,ForgotPasswordRequest, ResetPasswordRequest
@@ -114,18 +115,32 @@ def logout(
     clear_refresh_cookie(response)  # expire the cookie
     return MessageResponse(message="You have been successfully logged out.")
 
+class _RefreshBody(BaseModel):
+    # Optional so an empty/absent body doesn't 422 — the token may instead
+    # arrive via the HttpOnly cookie (same-site) rather than the body.
+    refresh_token: Optional[str] = None
+
+
 @router.post("/refresh", response_model=LoginResponse) # Use LoginResponse
 def refresh_token(
     response: Response,
     db: Session = Depends(get_db),
+    body: Optional[_RefreshBody] = None,
     refresh_token: Optional[str] = Cookie(None, alias="refresh_token"),
 ):
-    if not refresh_token:
+    # WHY body-OR-cookie: on a split-domain deploy (frontend on vercel.app,
+    # backend on run.app) the refresh cookie is third-party and modern browsers
+    # (Safari always, Chrome increasingly) block it, so the cookie never gets
+    # sent and the session dies on every reload. Accepting the token in the
+    # request body lets the SPA send its stored token explicitly. Same-site
+    # deploys keep using the more secure HttpOnly cookie automatically.
+    token = (body.refresh_token if body and body.refresh_token else None) or refresh_token
+    if not token:
         raise HTTPException(status_code=401, detail="Refresh token not found.")
-    
+
     # This service needs to be updated to return the user object
     try:
-        user, new_tokens = refresh_access(db, RefreshTokenRequest(refresh_token=refresh_token))
+        user, new_tokens = refresh_access(db, RefreshTokenRequest(refresh_token=token))
     except HTTPException as e:
         # If blacklisted/invalid, clear cookie so you don’t keep retrying a dead token
         clear_refresh_cookie(response)

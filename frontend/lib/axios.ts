@@ -46,21 +46,25 @@ let refreshPromise: Promise<string | null> | null = null;
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
 
-  const { setAccessToken, logout } = useAuthStore.getState();
+  const { setTokens, logout, refreshToken } = useAuthStore.getState();
 
   refreshPromise = (async () => {
     try {
-      const resp = await axios.post(`${API_URL}/auth/refresh`, {}, {
+      // Send the stored refresh token in the body — the third-party cookie
+      // can't be relied on across domains (see authStore/refreshSession).
+      const resp = await axios.post(`${API_URL}/auth/refresh`, { refresh_token: refreshToken }, {
         withCredentials: true, // Be explicit for this call
         timeout: 30000,        // raw axios stays outside the interceptor chain
       });
-      
+
       const newAccess = resp.data?.access_token as string | undefined;
+      const newRefresh = resp.data?.refresh_token as string | undefined;
       if (!newAccess) {
         logout();
         return null;
       }
-      setAccessToken(newAccess);
+      // Refresh rotates the refresh token, so store both.
+      setTokens(newAccess, newRefresh ?? refreshToken ?? '');
       return newAccess;
     } catch {
       logout();
