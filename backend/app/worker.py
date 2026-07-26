@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import logging
+import ssl
+from urllib.parse import urlparse
 
 from celery import Celery
 from celery.signals import task_failure
@@ -41,6 +43,19 @@ celery_app = Celery(
         # and @task registrations happen at worker start, not lazily.
     ],
 )
+
+# WHY: kombu's redis transport raises `ValueError: A rediss:// URL must have
+# parameter ssl_cert_reqs...` unless broker_use_ssl is set explicitly — unlike
+# plain redis-py (app/core/redis.py), which infers sane TLS defaults from the
+# scheme alone. Managed Redis providers (Upstash included) are TLS-only, so
+# every prod deploy hits this the moment a task is first enqueued: the row
+# already committed to Postgres, then `.delay()` raises and the request 500s.
+if urlparse(settings.REDIS_URL).scheme == "rediss":
+    _redis_ssl_opts = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
+    celery_app.conf.update(
+        broker_use_ssl=_redis_ssl_opts,
+        redis_backend_use_ssl=_redis_ssl_opts,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,23 @@ from app.tasks.moderation import moderate_story_task
 # Initialize the LLM Adapter once
 _llm = LLMAdapter()
 
+# WHY: soft-deleted (is_disabled) authors keep their non-flagged stories —
+# User.stories has no delete-orphan cascade (see models/user.py) — but the
+# byline shouldn't keep advertising a deleted account's real username.
+DELETED_USER_LABEL = "Deleted User"
+
+
+def _mask_deleted_authors(items: List[Story]) -> None:
+    """In-memory-only username override for disabled authors.
+
+    Mutates the loaded ORM `User.username` attribute for display, same
+    pattern as `_populate_interaction_flags` below — never committed, so it
+    can't leak into the database.
+    """
+    for item in items:
+        if item.user is not None and item.user.is_disabled:
+            item.user.username = DELETED_USER_LABEL
+
 
 # /** WHY: AI moderation used to run inline and add LLM latency to every
 #     publish. Now the row lands in `pending`, the async task runs the
@@ -35,7 +52,7 @@ _llm = LLMAdapter()
 #     final state without special-casing. **/
 def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
     tag_objs = []
-    allowed_roles = {"creator", "moderator", "admin"}
+    allowed_roles = {"creator", "moderator", "superadmin"}
     if current_user.role.name not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -85,7 +102,7 @@ def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
 # --- STORY CREATION (AI) ---
 def generate_story(db: Session, data: StoryGenerateIn, current_user: User) -> Story:
     
-    allowed_roles = {"creator", "moderator", "admin"}
+    allowed_roles = {"creator", "moderator", "superadmin"}
     if current_user.role.name not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -98,24 +115,49 @@ def generate_story(db: Session, data: StoryGenerateIn, current_user: User) -> St
         tone=data.tone,
         length_label=data.length_label
     )
+    # The LLM call itself stays inline — it IS the request's purpose and can't
+    # be deferred. Only moderation is deferred, to match create_story's flow.
     story_text, msg_id = _generate_story_text(prompt=full_prompt, model=data.model_name, temperature=data.temperature)
+    return finalize_generated_story(db, data, current_user, story_text=story_text, msg_id=msg_id)
+
+
+def build_generation_prompt(data: StoryGenerateIn) -> str:
+    """Public wrapper so the streaming route can reuse the prompt builder."""
+    return _build_story_prompt(
+        user_prompt=data.prompt, genre=data.genre, tone=data.tone, length_label=data.length_label
+    )
+
+
+def finalize_generated_story(
+    db: Session, data: StoryGenerateIn, current_user: User, *, story_text: str, msg_id: str
+) -> Story:
+    """Persist a generated story + its first revision, then enqueue moderation.
+
+    Shared by both the synchronous `generate_story` and the streaming route
+    (`/stories/generate/stream`) so the landing rules stay in one place.
+
+    /** WHY: unified moderation flow with create_story. Land as `pending`
+        when the author wants it published, then the async task runs the same
+        moderate_content() check and flips to published/rejected. Non-publish
+        generations rest as `generated` (the AI equivalent of a human draft)
+        and skip moderation until publish is invoked. **/
+    """
     title = data.title or _default_title_from(story_text)
-    flagged, cats = moderate_content([title, story_text])
 
     new_story = Story(
         user_id=str(current_user.id), title=title, header=data.summary, content=story_text,
         cover_image_url=str(data.cover_image_url) if data.cover_image_url else None,
-        is_published=(data.publish_now and not flagged),
-        is_flagged=flagged, flag_source="ai" if flagged else "none",
+        is_published=False,          # stays False until moderation approves
+        is_flagged=False, flag_source="none",
         source=ContentSource.ai, genre=data.genre, tone=data.tone,
         length_label=LengthLabel(data.length_label) if data.length_label else None,
         summary=data.summary, words_count=_count_words(story_text),
-        status=(StoryStatus.published if (data.publish_now and not flagged) else StoryStatus.generated),
+        status=(StoryStatus.pending if data.publish_now else StoryStatus.generated),
         prompt=data.prompt, model_name=data.model_name, temperature=data.temperature,
         provider_message_id=msg_id, version=1
     )
     db.add(new_story)
-    db.flush() 
+    db.flush()
 
     # Create the first revision record
     db.add(StoryRevision(
@@ -123,8 +165,13 @@ def generate_story(db: Session, data: StoryGenerateIn, current_user: User) -> St
         model_name=new_story.model_name, provider_message_id=msg_id, user_id=current_user.id
     ))
 
+    story_id = str(new_story.id)
     db.commit()
     db.refresh(new_story)
+
+    if data.publish_now:
+        moderate_story_task.delay(story_id=story_id)
+
     return new_story
 
 # --- READING STORIES ---
@@ -179,6 +226,7 @@ def get_all_stories(db: Session, limit: int, offset: int, tag: Optional[str], au
     total = query.count()
     items = query.order_by(Story.created_at.desc()).offset(offset).limit(limit).all()
     _populate_interaction_flags(db, items, current_user)
+    _mask_deleted_authors(items)
     return total, items
 
 def get_user_stories(db: Session, user: User, limit: int, offset: int) -> Tuple[int, List[Story]]:
@@ -237,7 +285,7 @@ def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[U
         is_bookmarked_by_user=bool(getattr(story, "is_bookmarked_by_user", False)),
         user=UserSummary(
             id=str(story.user.id),
-            username=story.user.username
+            username=DELETED_USER_LABEL if story.user.is_disabled else story.user.username
         ))
 
 # --- MODIFYING STORIES ---
@@ -356,9 +404,26 @@ def _generate_story_text(*, prompt: str, model: str, temperature: float) -> Tupl
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="LLM returned empty text")
     return text, msg_id
 
+# Concrete word-count targets per length label. Without these the model has
+# no idea what "long" means and defaults to a few lines. "at least" framing
+# (rather than a capped range) pushes it to actually fill the length out.
+_LENGTH_GUIDANCE = {
+    "flash": "a flash fiction piece of roughly 300–600 words",
+    "short": "a short story of at least 1,000 words (roughly 1,000–1,800)",
+    "medium": "a substantial story of at least 2,500 words (roughly 2,500–4,000)",
+    "long": "a long, fully-developed story of at least 4,000 words — do not cut it short; "
+            "expand scenes, dialogue, and description until it genuinely reads as a long piece",
+}
+
+
 def _build_story_prompt(user_prompt: str, genre: str|None, tone: str|None, length_label: str|None) -> str:
+    length_target = _LENGTH_GUIDANCE.get((length_label or "short"), _LENGTH_GUIDANCE["short"])
     return f"""
-You are a skilled fiction writer. Write a complete short story based on the instructions below.
+You are a skilled fiction writer. Write {length_target}, based on the instructions below.
+
+Write the FULL story — a beginning, a developed middle, and an ending. Do not
+summarize or write an outline. Do not stop early. Keep writing until the story
+is complete at the target length.
 
 Output STRICTLY valid, minimal HTML. Use:
 - <h1> for the title (if you invent one)
@@ -371,8 +436,7 @@ Output STRICTLY valid, minimal HTML. Use:
 Constraints:
 - Genre: {genre or "any"}
 - Tone: {tone or "any"}
-- Length: {length_label or "short"} (aim within that range)
-- Keep it readable on web; short paragraphs.
+- Target length: {length_target}
 
 Instructions/theme:
 {user_prompt}

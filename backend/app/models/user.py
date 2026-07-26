@@ -27,7 +27,12 @@ class User(Base):
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     is_disabled = Column(Boolean, default=False)
     role = relationship(Role)
-    stories = relationship("Story", back_populates="user", cascade="all, delete-orphan")
+    # WHY no delete-orphan: stories should outlive their author (see
+    # services/story.py's "Deleted User" display treatment for is_disabled
+    # authors). The only delete path today is soft (is_disabled=True, see
+    # services/admin.soft_delete_user), which never touches this cascade —
+    # this is a guard against a future hard-delete wiping authored content.
+    stories = relationship("Story", back_populates="user")
 
     # Other relationships
     likes = relationship("Like", back_populates="user", cascade="all, delete-orphan")

@@ -2,7 +2,7 @@
 from datetime import datetime
 from app.utils.time import utcnow
 from uuid import UUID
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 
 from app.models.role import Role
@@ -152,7 +152,12 @@ def create_creator_request(db: Session, user: User, data: CreatorRequestCreate) 
     return new_request
 
 def get_pending_creator_requests(db: Session) -> list[CreatorRequest]:
-    return db.query(CreatorRequest).filter(CreatorRequest.status == RequestStatus.PENDING).all()
+    return (
+        db.query(CreatorRequest)
+        .options(joinedload(CreatorRequest.user))
+        .filter(CreatorRequest.status == RequestStatus.PENDING)
+        .all()
+    )
 
 def review_creator_request(
     db: Session,

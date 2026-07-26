@@ -103,3 +103,9 @@ tzdata==2025.2
 uritemplate==4.2.0
 urllib3==2.4.0
 uvicorn==0.34.3
+# WHY: bare uvicorn has no WebSocket support — it needs `websockets` or
+# `wsproto` installed separately (or the `uvicorn[standard]` extra, which
+# pulls in more than just this). Every /ws/* route (notifications, support
+# chatbot) 404s on the upgrade handshake without it — this was silently
+# missing, breaking both endpoints in every environment, not just prod.
+websockets==13.1

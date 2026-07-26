@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl, Field, constr
+from pydantic import BaseModel, HttpUrl, Field, constr, field_validator
 from typing import List, Optional, Literal
 from datetime import datetime
 from uuid import UUID # Import UUID for type hinting if needed, though str is used for JSON
@@ -14,12 +14,6 @@ PromptText = constr(strip_whitespace=True, min_length=1, max_length=20_000)
 FeedbackText = constr(strip_whitespace=True, min_length=1, max_length=5_000)
 
 # --- Nested Schemas for Clean Responses ---
-class AuthorPreview(BaseModel):
-    id: UUID
-    username: str
-
-    model_config = dict(from_attributes=True)
-
 class TagOut(BaseModel):
     id: UUID
     name: str
@@ -69,7 +63,11 @@ class StoryGenerateIn(BaseModel):
     length_label: Optional[Literal["flash","short","medium","long"]] = None
     publish_now: bool = False
     temperature: Optional[float] = Field(default=0.8, ge=0.0, le=2.0)
-    model_name: Optional[constr(max_length=100)] = "gpt-4o-mini"
+    # Default None so the LLM adapter falls back to settings.LLM_MODEL —
+    # the single source of truth. A hardcoded default here (previously
+    # "gpt-4o-mini", an OpenAI name sent to the Gemini provider) silently
+    # overrides the configured model and 404s.
+    model_name: Optional[constr(max_length=100)] = None
     cover_image_url: Optional[HttpUrl] = None
 
 class StoryFeedbackIn(BaseModel):
@@ -90,7 +88,6 @@ class StoryOut(BaseModel):
     is_liked_by_user: bool = False
     is_bookmarked_by_user: bool = False
     # Relations / projections (often optional in responses)
-    author: Optional[AuthorPreview] = None
     tags: List[TagOut] = Field(default_factory=list)
     header: Optional[str] = None
     cover_image_url: Optional[str] = None
@@ -103,9 +100,20 @@ class StoryOut(BaseModel):
     flags_count: int = 0
     is_flagged: bool = False
     user: Optional[UserSummary] = None
+    # Lifecycle state — draft | pending | generated | published | rejected.
+    # Lets the frontend distinguish "under review" from "rejected" from
+    # "draft", all of which otherwise collapse to is_published=False.
+    status: Optional[str] = None
     # Generation / versioning
     version: int = 1
     draft_reason: Optional[str] = None
+
+    # status is a StoryStatus enum on the ORM model; coerce to its string
+    # value so both model_validate() and manual construction accept it.
+    @field_validator("status", "source", mode="before")
+    @classmethod
+    def _enum_to_value(cls, v):
+        return v.value if hasattr(v, "value") else v
 
     # Allow model attributes-to-schema and ignore unknown extras
     model_config = dict(from_attributes=True, extra="ignore")
