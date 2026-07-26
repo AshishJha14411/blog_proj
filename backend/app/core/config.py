@@ -24,7 +24,11 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str | None = None
     GOOGLE_REDIRECT_URI: str | None = None 
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "google")   # "google" | "openai"
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-pro-2.5")
+    # Default must be a currently-valid model. "gemini-pro-2.5" is retired and
+    # 404s — prod only worked because the Cloud Run env var overrides this. If
+    # that override is ever dropped, generation breaks silently, so keep the
+    # default itself valid.
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-flash-latest")
     GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY")
     OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.8"))
