@@ -3,6 +3,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import NotificationsBell from '@/components/common/NotificationsBell'; // Adjust path
 import { useUnreadNotifications } from '@/hooks/useUnreadNotifications';
 import { getNotifications, markRead, markAllRead, NotificationItem } from '@/services/notificationService';
@@ -36,6 +37,21 @@ Object.defineProperty(window, 'location', {
 vi.spyOn(window.location, 'href', 'set').mockImplementation(mockWindowLocation);
 
 
+// The bell calls useQueryClient() so it can invalidate the unread-count query
+// after marking notifications read (otherwise the badge kept a stale number
+// until the next poll, which is an hour away while the socket is healthy).
+// That requires a provider in tests.
+function renderBell() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <NotificationsBell />
+    </QueryClientProvider>,
+  );
+}
+
 // --- (B) THE TEST SUITE ---
 
 describe('NotificationsBell Component', () => {
@@ -60,7 +76,7 @@ describe('NotificationsBell Component', () => {
     mockUseUnreadNotifications.mockReturnValue(5);
 
     // ACT
-    render(<NotificationsBell />);
+    renderBell();
 
     // ASSERT
     // Find the badge by its text
@@ -74,7 +90,7 @@ describe('NotificationsBell Component', () => {
     mockUseUnreadNotifications.mockReturnValue(0);
 
     // ACT
-    render(<NotificationsBell />);
+    renderBell();
 
     // ASSERT
     // The `queryBy` methods return null if not found, which is what we want
@@ -89,7 +105,7 @@ describe('NotificationsBell Component', () => {
     mockUseUnreadNotifications.mockReturnValue(1);
     mockGetNotifications.mockResolvedValue({ items: [mockNotification] });
 
-    render(<NotificationsBell />);
+    renderBell();
 
     // ACT
     // 1. Click the bell button
@@ -117,7 +133,7 @@ describe('NotificationsBell Component', () => {
     mockUseUnreadNotifications.mockReturnValue(0);
     mockGetNotifications.mockResolvedValue({ items: [] }); // API returns empty list
 
-    render(<NotificationsBell />);
+    renderBell();
 
     // ACT
     await user.click(screen.getByRole('button'));
@@ -135,7 +151,7 @@ describe('NotificationsBell Component', () => {
     mockGetNotifications.mockResolvedValue({ items: [mockNotification] });
     mockMarkRead.mockResolvedValue({}); // Mock the API call
 
-    render(<NotificationsBell />);
+    renderBell();
 
     // ACT
     // 1. Open the bell
@@ -167,7 +183,7 @@ describe('NotificationsBell Component', () => {
     mockGetNotifications.mockResolvedValue({ items: [mockNotification] });
     mockMarkAllRead.mockResolvedValue({});
 
-    render(<NotificationsBell />);
+    renderBell();
 
     // ACT
     // 1. Open the bell

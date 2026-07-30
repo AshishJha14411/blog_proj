@@ -1,47 +1,41 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+
 import { getUnreadCount } from "@/services/notificationService";
 import { useAuthStore } from "@/stores/authStore";
 
+/** Shared cache key — anything that changes read-state should invalidate this. */
+export const unreadCountKey = ["notifications", "unread-count"] as const;
+
+/**
+ * Unread badge count.
+ *
+ * WHY TanStack rather than local state + setInterval: the count is server state
+ * displayed in two places (this badge and the notifications page), and marking a
+ * notification read has to update BOTH. With a local useState the badge kept a
+ * private copy that only refreshed on its poll tick — and when the WebSocket is
+ * healthy that tick is an hour — so "mark all read" visibly zeroed the list but
+ * left a stale number on the bell. A shared query key makes invalidation the
+ * mechanism instead of hoping the next poll arrives.
+ *
+ * WHY the auth gate: calling an authed endpoint while anonymous (or in the beat
+ * between login and the token landing in the store) logged a red 401 in the
+ * console on every page load.
+ */
 export function useUnreadNotifications(pollMs = 300_000) {
-  const [count, setCount] = useState(0);
-  // Subscribed (not getState()) so the effect re-runs the moment auth lands.
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const accessToken = useAuthStore((s) => s.accessToken);
+  const enabled = Boolean(isAuthenticated && accessToken);
 
-  useEffect(() => {
-    // WHY the gate: this hook used to fire on mount unconditionally, so an
-    // anonymous visitor — and the brief window during login before the token is
-    // stored — hit /me/notifications/unread_count without credentials and logged
-    // a red 401 in the browser console. Nothing was broken (the catch below
-    // swallowed it), but a live site should not surface errors for a case we
-    // fully expect. Wait until we actually hold a token.
-    if (!isAuthenticated || !accessToken) {
-      setCount(0);
-      return;
-    }
+  const { data } = useQuery({
+    queryKey: unreadCountKey,
+    queryFn: getUnreadCount,
+    enabled,
+    refetchInterval: pollMs,
+    // A failed count is cosmetic — don't retry-storm the API over a badge.
+    retry: false,
+    initialData: 0,
+  });
 
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const next = await getUnreadCount();
-        if (!cancelled) setCount(next);
-      } catch {
-        // network hiccup — leave count as-is, the next tick will retry
-      }
-    }
-
-    load();
-    const id = setInterval(load, pollMs);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-    // pollMs in deps means changing the poll cadence tears down the old
-    // interval instead of leaking one per change. The auth deps make the poll
-    // start on login and stop on logout.
-  }, [pollMs, isAuthenticated, accessToken]);
-
-  return count;
+  return enabled ? (data ?? 0) : 0;
 }

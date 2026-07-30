@@ -4,8 +4,9 @@
  * Phase 3 pushes changes over WebSocket instead, and the bell falls back
  * to the polling hook if the socket downgrades.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useNotificationSocket } from "@/hooks/useNotificationSocket";
 import { useUnreadNotifications } from "@/hooks/useUnreadNotifications";
@@ -21,6 +22,38 @@ export default function NotificationsBell() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [socketUnread, setSocketUnread] = useState(0);
+  const queryClient = useQueryClient();
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Marking things read changes server state the badge is derived from, so
+  // invalidate rather than waiting for the next poll (which can be an hour away
+  // while the socket is healthy). This also keeps the bell in step with the
+  // /notifications page, which invalidates the same key.
+  const refreshUnread = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+  }, [queryClient]);
+
+  // WHY: a dropdown that only closes via its own trigger feels broken — clicking
+  // anywhere else on the page should dismiss it, and Escape should too. Listens
+  // on `mousedown` so the menu closes before a click lands on whatever is
+  // underneath it.
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   // WHY: the socket handles updates in real time. If it downgrades (too
   // many failed reconnects) we fall through to polling — the hook returns
@@ -59,6 +92,7 @@ export default function NotificationsBell() {
     );
     try {
       await markRead(n.id);
+      refreshUnread(); // badge must drop immediately, not on the next poll
     } catch {
       // best-effort; UI already reflects the intent
     }
@@ -73,7 +107,7 @@ export default function NotificationsBell() {
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       <button
         onClick={() => setOpen((s) => !s)}
         className="relative rounded p-2 hover:bg-gray-100"
@@ -98,6 +132,7 @@ export default function NotificationsBell() {
                 setSocketUnread(0);
                 try {
                   await markAllRead();
+                  refreshUnread(); // was leaving a stale number on the bell
                 } catch {
                   // ignore — reload will resync
                 }
