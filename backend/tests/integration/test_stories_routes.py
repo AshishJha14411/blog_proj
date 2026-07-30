@@ -157,7 +157,10 @@ def test_read_story_details_computed_flags_and_view_log(client: TestClient, db_s
 
     viewer = UserFactory()
     from app import dependencies as deps
+    # The detail route is async now, so it resolves get_current_user_optional_async;
+    # override that (keep the sync one too for any sync path in this client).
     client.app.dependency_overrides[deps.get_current_user_optional] = _override_current_user(viewer)
+    client.app.dependency_overrides[deps.get_current_user_optional_async] = _override_current_user(viewer)
 
     # viewer has liked and bookmarked
     db_session.add_all([
@@ -175,6 +178,24 @@ def test_read_story_details_computed_flags_and_view_log(client: TestClient, db_s
     assert data["tags"][0]["name"] == "x"
 
     client.app.dependency_overrides.pop(deps.get_current_user_optional, None)
+    client.app.dependency_overrides.pop(deps.get_current_user_optional_async, None)
+
+
+def test_story_detail_sends_etag_and_revalidates_to_304(client: TestClient, db_session: Session):
+    """HTTP conditional GET: first read returns an ETag + revalidation headers;
+    a second read echoing it back gets a bodyless 304 (see utils/http_cache)."""
+    story = StoryFactory(is_published=True, user=UserFactory())
+
+    first = client.get(f"/stories/{story.id}")
+    assert first.status_code == 200, first.text
+    etag = first.headers.get("etag")
+    assert etag, "expected an ETag header on the read response"
+    assert "no-cache" in first.headers.get("cache-control", "")
+
+    second = client.get(f"/stories/{story.id}", headers={"If-None-Match": etag})
+    assert second.status_code == 304
+    assert second.headers.get("etag") == etag
+    assert second.content == b""  # 304 carries no body
 
 
 # -----------------------

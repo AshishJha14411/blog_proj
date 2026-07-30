@@ -15,7 +15,7 @@ describe('Full-Stack Auth E2E Journey', () => {
     cy.request({
       method: 'POST',
       // We hit the backend directly, not the frontend
-      url: 'http://localhost:8000/auth/signup', 
+      url: 'http://localhost:8000/api/v1/auth/signup', 
       body: {
         username: testUser.username,
         email: testUser.email,

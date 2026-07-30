@@ -106,7 +106,7 @@ def test_login_invalid_401(client: TestClient, db_session: Session):
 def test_refresh_token_from_cookie_success(client: TestClient, db_session: Session):
     user = _create_user_with_password(db_session, "refresh_me", "pw")
     refresh = create_refresh_token({"user_id": str(user.id), "type": "refresh"})
-    client.cookies.set("refresh_token", refresh, path="/auth")
+    client.cookies.set("refresh_token", refresh, path="/api/v1/auth")
     res = client.post("/auth/refresh")
     assert res.status_code == 200, res.text
     data = res.json()
@@ -118,7 +118,7 @@ def test_refresh_token_from_cookie_success(client: TestClient, db_session: Sessi
     # case the domain-matched fresh one wins → 200, a test artifact not a
     # real replay). Re-set only the old value.
     client.cookies.clear()
-    client.cookies.set("refresh_token", refresh, path="/auth")
+    client.cookies.set("refresh_token", refresh, path="/api/v1/auth")
     replay = client.post("/auth/refresh")
     assert replay.status_code == 401
     # Jar-independent proof: rotation must have blacklisted the old JTI.
@@ -139,7 +139,7 @@ def test_refresh_token_blacklisted_clears_cookie(client: TestClient, db_session:
     db_session.add(TokenBlacklist(jti=decoded["jti"], expires_at=datetime.now(timezone.utc)))
     db_session.commit()
 
-    client.cookies.set("refresh_token", refresh, path="/auth")
+    client.cookies.set("refresh_token", refresh, path="/api/v1/auth")
     res = client.post("/auth/refresh")
     assert res.status_code == 401
 
@@ -149,7 +149,7 @@ def test_refresh_token_blacklisted_clears_cookie(client: TestClient, db_session:
 def test_logout_with_cookie_blacklists_and_clears_cookie(client: TestClient, db_session: Session):
     user = _create_user_with_password(db_session, "bye", "pw")
     refresh = create_refresh_token({"user_id": str(user.id), "type": "refresh"})
-    client.cookies.set("refresh_token", refresh, path="/auth")
+    client.cookies.set("refresh_token", refresh, path="/api/v1/auth")
     res = client.post("/auth/logout")
     assert res.status_code == 200
     from app.utils.security import decode_access_token

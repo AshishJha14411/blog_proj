@@ -22,7 +22,6 @@ export default function CreatePostForm() {
     setError('');
     try {
       const newPost = await createPost({ title, content,tag_names });
-      console.log(title,content,tag_names)
       // Redirect to the new post's page after creation
       router.push(`/userStory/${newPost.id}`);
     } catch (err) {

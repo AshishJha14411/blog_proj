@@ -1,4 +1,4 @@
-import api, { API_URL } from "@/lib/axios";
+import api, { API_V1_URL } from "@/lib/axios";
 import { useAuthStore } from "@/stores/authStore";
 
 export type LengthLabel = "flash" | "short" | "medium" | "long";
@@ -80,7 +80,7 @@ export async function generateStoryStream(
   const token = useAuthStore.getState().accessToken;
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/stories/generate/stream`, {
+    res = await fetch(`${API_V1_URL}/stories/generate/stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -129,8 +129,20 @@ export async function generateStoryStream(
   }
 }
 
-export async function sendFeedback(postId: string, feedback: string): Promise<PostOut> {
-  const { data } = await api.post<PostOut>(`/stories/${postId}/feedback`, { feedback }, { timeout: LLM_REQUEST_TIMEOUT_MS });
+export async function sendFeedback(
+  postId: string,
+  feedback: string,
+  lengthLabel?: LengthLabel,
+): Promise<PostOut> {
+  // lengthLabel is optional and forwarded only when the caller supplies it —
+  // omitting it keeps the story's existing length server-side. Without this the
+  // length control on the preview page had no effect: every revision reused the
+  // length the story was first generated at.
+  const { data } = await api.post<PostOut>(
+    `/stories/${postId}/feedback`,
+    lengthLabel ? { feedback, length_label: lengthLabel } : { feedback },
+    { timeout: LLM_REQUEST_TIMEOUT_MS },
+  );
   return data;
 }
 

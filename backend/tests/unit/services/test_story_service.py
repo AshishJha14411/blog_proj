@@ -57,6 +57,36 @@ def _allow_moderator():
     return UserFactory(role=RoleFactory(name="moderator"))
 
 
+# ---------------------------------------------------------------------------
+# Async read helpers: the story read layer (get_all_stories / get_user_stories
+# / get_story_details) is async now. These shims run each coroutine against the
+# sync test session via conftest's _AsyncSessionAdapter, so the assertions and
+# transaction isolation below stay exactly as they were.
+# ---------------------------------------------------------------------------
+import asyncio as _asyncio
+from tests.conftest import _AsyncSessionAdapter
+
+
+def _run_async(coro):
+    loop = _asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def _get_all_stories(db_session, *a, **k):
+    return _run_async(story_service.get_all_stories(_AsyncSessionAdapter(db_session), *a, **k))
+
+
+def _get_user_stories(db_session, *a, **k):
+    return _run_async(story_service.get_user_stories(_AsyncSessionAdapter(db_session), *a, **k))
+
+
+def _get_story_details(db_session, *a, **k):
+    return _run_async(story_service.get_story_details(_AsyncSessionAdapter(db_session), *a, **k))
+
+
 # -----------------------
 # CREATE (human-authored)
 # -----------------------
@@ -263,23 +293,23 @@ def test_get_all_stories_visibility_and_filters(db_session: Session, monkeypatch
     db_session.commit()
 
     # Regular sees only published
-    total, items = story_service.get_all_stories(db_session, limit=10, offset=0, tag=None, author_id=None, current_user=user_regular)
+    total, items = _get_all_stories(db_session, limit=10, offset=0, tag=None, author_id=None, current_user=user_regular)
     assert total == 1
     assert items[0].id == s1.id
 
     # Moderator sees both
-    total_m, items_m = story_service.get_all_stories(db_session, limit=10, offset=0, tag=None, author_id=None, current_user=mod)
+    total_m, items_m = _get_all_stories(db_session, limit=10, offset=0, tag=None, author_id=None, current_user=mod)
     assert total_m == 2
     ids = {i.id for i in items_m}
     assert {s1.id, s2.id} <= ids
 
     # Tag filter
-    total_alpha, items_alpha = story_service.get_all_stories(db_session, 10, 0, tag="alpha", author_id=None, current_user=mod)
+    total_alpha, items_alpha = _get_all_stories(db_session, 10, 0, tag="alpha", author_id=None, current_user=mod)
     assert total_alpha == 1
     assert items_alpha[0].id == s1.id
 
     # Author filter
-    total_author, items_author = story_service.get_all_stories(db_session, 10, 0, tag=None, author_id=s2.user_id, current_user=mod)
+    total_author, items_author = _get_all_stories(db_session, 10, 0, tag=None, author_id=s2.user_id, current_user=mod)
     assert total_author == 1
     assert items_author[0].id == s2.id
 
@@ -291,7 +321,7 @@ def test_get_user_stories(db_session: Session, monkeypatch):
     story_service.create_story(db_session, StoryCreate(title="t1", content="...", tag_names=[], is_published=True), author)
     story_service.create_story(db_session, StoryCreate(title="t2", content="...", tag_names=[], is_published=False), author)
 
-    total, items = story_service.get_user_stories(db_session, author, limit=10, offset=0)
+    total, items = _get_user_stories(db_session, author, limit=10, offset=0)
     assert total == 2
     assert all(s.user_id == author.id for s in items)
 
@@ -315,20 +345,20 @@ def test_get_story_details_404_rules_and_flags(db_session: Session, monkeypatch)
 
     # Anonymous should 404 (unpublished)
     with pytest.raises(Exception):
-        story_service.get_story_details(db_session, s.id, None, _ReqStub())
+        _get_story_details(db_session, s.id, None, _ReqStub())
 
     # Other regular user should 404
     with pytest.raises(Exception):
-        story_service.get_story_details(db_session, s.id, other_user, _ReqStub())
+        _get_story_details(db_session, s.id, other_user, _ReqStub())
 
     # Author can view
-    out = story_service.get_story_details(db_session, s.id, author, _ReqStub())
+    out = _get_story_details(db_session, s.id, author, _ReqStub())
     assert isinstance(out, StoryOut)
     assert out.title == "hidden"
     assert out.user.id == author.id
 
     # Moderator can view
-    out2 = story_service.get_story_details(db_session, s.id, mod, _ReqStub())
+    out2 = _get_story_details(db_session, s.id, mod, _ReqStub())
     assert out2.id == s.id
 
     # ViewHistory logged
@@ -338,7 +368,7 @@ def test_get_story_details_404_rules_and_flags(db_session: Session, monkeypatch)
     db_session.add(Like(user_id=author.id, story_id=s.id))
     db_session.add(Bookmark(user_id=author.id, story_id=s.id))
     db_session.commit()
-    out3 = story_service.get_story_details(db_session, s.id, author, _ReqStub())
+    out3 = _get_story_details(db_session, s.id, author, _ReqStub())
     assert out3.is_liked_by_user is True
     assert out3.is_bookmarked_by_user is True
 
@@ -358,7 +388,7 @@ def test_get_story_details_404_when_soft_deleted(db_session: Session, monkeypatc
     db_session.commit()
 
     with pytest.raises(Exception) as exc:
-        story_service.get_story_details(db_session, s.id, author, _ReqStub())
+        _get_story_details(db_session, s.id, author, _ReqStub())
     from fastapi import HTTPException
     assert isinstance(exc.value, HTTPException) and exc.value.status_code == 404
 
@@ -388,7 +418,7 @@ def test_get_all_stories_hides_soft_deleted(db_session: Session, monkeypatch):
     dead.deleted_at = utcnow()
     db_session.commit()
 
-    total, items = story_service.get_all_stories(
+    total, items = _get_all_stories(
         db_session, limit=10, offset=0, tag=None, author_id=None, current_user=None,
     )
     ids = {s.id for s in items}
@@ -472,7 +502,7 @@ def test_delete_story_soft_delete(db_session: Session, monkeypatch):
     assert "deleted" in res["message"].lower()
 
     # Soft-deleted means not returned by default listing
-    total, items = story_service.get_all_stories(db_session, 10, 0, None, None, author)
+    total, items = _get_all_stories(db_session, 10, 0, None, None, author)
     assert all(i.id != s.id for i in items)
 
 

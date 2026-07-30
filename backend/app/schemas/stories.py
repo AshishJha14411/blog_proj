@@ -72,6 +72,11 @@ class StoryGenerateIn(BaseModel):
 
 class StoryFeedbackIn(BaseModel):
     feedback: FeedbackText
+    # Optional length override for "regenerate with feedback". Without this the
+    # revision is locked to whatever length the story was first generated at, so
+    # the length control on the preview page had no effect. Omitted => keep the
+    # story's existing length.
+    length_label: Optional[Literal["flash","short","medium","long"]] = None
 
 # --- Output Schemas (Data going OUT from the API) ---
 
@@ -91,7 +96,15 @@ class StoryOut(BaseModel):
     tags: List[TagOut] = Field(default_factory=list)
     header: Optional[str] = None
     cover_image_url: Optional[str] = None
-    source: str = "user"  
+    source: str = "user"
+    # AI-generation metadata — present on AI stories, null on human ones. These
+    # exist on the ORM model and the edit UI reads them; they were previously
+    # NOT exposed here, so the frontend silently read `undefined` (real drift,
+    # surfaced by the generated-type adoption). Now part of the contract.
+    genre: Optional[str] = None
+    tone: Optional[str] = None
+    length_label: Optional[str] = None
+    summary: Optional[str] = None
     # Computed / analytics fields (default to zero/False)
     likes_count: int = 0
     bookmarks_count: int = 0
@@ -110,7 +123,7 @@ class StoryOut(BaseModel):
 
     # status is a StoryStatus enum on the ORM model; coerce to its string
     # value so both model_validate() and manual construction accept it.
-    @field_validator("status", "source", mode="before")
+    @field_validator("status", "source", "length_label", mode="before")
     @classmethod
     def _enum_to_value(cls, v):
         return v.value if hasattr(v, "value") else v
@@ -124,6 +137,10 @@ class StoryList(BaseModel):
     limit: int
     offset: int
     items: List[StoryOut] # Uses our new, unified StoryOut schema
+    # Opaque cursor for the NEXT page (keyset pagination). Null when there are
+    # no more rows, or when the caller used offset pagination. Pass it back as
+    # `?cursor=` to fetch the next page in O(1) regardless of depth.
+    next_cursor: Optional[str] = None
 
     class Config:
         from_attributes = True

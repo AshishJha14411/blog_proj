@@ -11,6 +11,7 @@ import requests
 from fastapi import BackgroundTasks, HTTPException, status
 from jose import JWTError
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -118,10 +119,23 @@ def create_user(
     )
     db.add(new_user)
     db.add(otp_entry)
-    # db.commit()
-    
+
     try:
         db.commit()
+    except IntegrityError as e:
+        # The DB unique constraint — not the pre-check above — is the real
+        # arbiter of the signup race. Two concurrent requests can BOTH pass the
+        # pre-check, but only one commits; the loser's INSERT violates the
+        # unique index and lands here. Return a clean 409, never a 500.
+        db.rollback()
+        msg = str(getattr(e, "orig", e)).lower()
+        if "email" in msg:
+            detail = "Email already registered"
+        elif "username" in msg:
+            detail = "Username already taken"
+        else:
+            detail = "Email or username already registered"
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     except Exception:
         db.rollback()
         logger.exception("signup commit failed")
@@ -386,7 +400,25 @@ def refresh_access(db: Session, data: RefreshTokenRequest) -> tuple[User, TokenP
         jti=jti,
         expires_at=datetime.fromtimestamp(payload.get("exp"), tz=timezone.utc),
     ))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # /** WHY: the blacklist pre-check above is a TOCTOU window, not a lock.
+        #     Two refreshes carrying the SAME token (parallel tabs, an axios
+        #     retry, or a replay of a stolen token) both pass the check and both
+        #     INSERT the same jti; the loser hits the unique index on
+        #     token_blacklist.jti. Unhandled, that surfaced as a 500 — and
+        #     because a 500 escapes before CORSMiddleware attaches headers, the
+        #     browser reported it as a misleading CORS failure instead. **/
+        # /** WHAT: the unique index is the real arbiter (same pattern as the
+        #     signup race). Losing means this token was already rotated, so the
+        #     correct answer is 401 -> re-login, which is also the right security
+        #     response to refresh-token reuse. **/
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked. Please log in again.",
+        )
     new_refresh_token = create_refresh_token(
         {"user_id": str(user.id)},
         expires_delta=timedelta(days=14),

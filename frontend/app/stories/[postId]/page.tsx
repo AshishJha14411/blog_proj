@@ -68,26 +68,9 @@ export default function EditAIStoryPage() {
       // F8: sendFeedback expects a UUID *string* — Number() would produce NaN.
       const updated = await sendFeedback(postId, feedback);
       setPreviewHTML(updated.content || "");
-      setPost((old) =>
-        old
-          ? { ...old, version: updated.version }
-          : {
-              ...updated,
-              header: updated.header ?? undefined,
-              cover_image_url: updated.cover_image_url ?? undefined,
-              genre: updated.genre ?? undefined,
-              tone: updated.tone ?? undefined,
-              length_label: updated.length_label ?? undefined,
-              summary: updated.summary ?? undefined,
-              last_feedback: updated.last_feedback ?? undefined,
-              user: { id: updated.user_id, username: "" },
-              tags: [],
-              is_flagged: false,
-              flag_source: "none" as const,
-              is_liked_by_user: updated.is_liked_by_user ?? false,
-              is_bookmarked_by_user: updated.is_bookmarked_by_user ?? false,
-            }
-      );
+      // Regenerate only ever runs on an already-loaded post, so `old` is
+      // non-null here — just bump the version off the fresh response.
+      setPost((old) => (old ? { ...old, version: updated.version ?? old.version } : old));
       setFeedback("");
     } catch (e) {
       setErr(getErrorMessage(e, "Regeneration failed."));

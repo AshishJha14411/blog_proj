@@ -80,9 +80,10 @@ export function useNotificationSocket(
     const connect = async () => {
       if (cancelled.current) return;
       try {
-        // WHAT: mint a fresh 30s ticket on every (re)connect.
+        // WHAT: mint a fresh 30s ticket on every (re)connect. Absolute URL on
+        // purpose: /ws/ticket is top-level, NOT under the axios /api/v1 base.
         const { data } = await axiosInstance.post<{ ticket: string }>(
-          "/ws/ticket",
+          `${API_URL}/ws/ticket`,
         );
         if (cancelled.current) return;
 

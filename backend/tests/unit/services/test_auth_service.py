@@ -63,6 +63,76 @@ def test_create_user_conflict(db_session: Session, dummy_mailer):
     assert exc_info.value.status_code == 409
 
 
+def test_concurrent_signup_same_email_exactly_one_wins(db_engine):
+    """TOCTOU signup race: two requests with the SAME email, fired concurrently.
+
+    The pre-check (SELECT then INSERT) is NOT the arbiter — under a real race
+    both callers can pass the pre-check. The UNIQUE constraint on users.email is
+    the arbiter: exactly one INSERT commits, the loser's commit raises
+    IntegrityError which create_user turns into a clean 409. This test proves the
+    invariant end-to-end: one winner, one 409, and exactly one row in the DB —
+    never two, never a 500.
+
+    Runs on real threads with their OWN sessions/connections (the shared
+    db_session savepoint can't model a cross-connection race), a Barrier lines
+    both up at the commit, and the rows are committed for real, so we clean them
+    up explicitly afterwards.
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import text
+    from sqlalchemy.orm import sessionmaker
+
+    email = f"race_{uuid.uuid4().hex[:10]}@example.com"
+    hasher = get_password_hasher()
+    SessionMaker = sessionmaker(bind=db_engine, expire_on_commit=False, future=True)
+    barrier = threading.Barrier(2)
+    # Tests run in an isolated schema (see conftest.db_engine); pin every session
+    # here to it explicitly so it doesn't matter which pooled connection we get.
+    schema = getattr(db_engine, "_test_schema")
+
+    def _new_session():
+        s = SessionMaker()
+        s.execute(text(f'SET search_path TO "{schema}", public'))
+        return s
+
+    class _NoopMailer:
+        def send_email(self, **kwargs):
+            pass
+
+    def _attempt(username: str):
+        session = _new_session()
+        try:
+            data = SignUpRequest(email=email, username=username, password="strongpassword")
+            barrier.wait(timeout=10)  # release both threads into the race together
+            try:
+                auth.create_user(session, data, BackgroundTasks(), hasher, _NoopMailer())
+                return "ok"
+            except HTTPException as exc:
+                return exc.status_code
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(_attempt, ["racer_alpha", "racer_beta"]))
+
+    verify = _new_session()
+    try:
+        rows = verify.query(User).filter(User.email == email).all()
+        # The core invariant: exactly one winner, one clean 409, one DB row.
+        assert results.count("ok") == 1, f"expected exactly one winner, got {results}"
+        assert results.count(409) == 1, f"expected exactly one 409, got {results}"
+        assert len(rows) == 1, f"unique constraint failed to arbitrate: {len(rows)} rows"
+    finally:
+        # These threads committed to the shared session-scoped schema (outside
+        # any test SAVEPOINT), so tidy up so the row can't leak into other tests.
+        for row in rows:
+            verify.query(OTPVerification).filter(OTPVerification.user_id == row.id).delete()
+            verify.delete(row)
+        verify.commit()
+        verify.close()
+
+
 # ----------------------------------------------------------------------
 # LOGIN
 # ----------------------------------------------------------------------

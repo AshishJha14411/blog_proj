@@ -6,6 +6,7 @@ import Navbar from "@/components/common/Navbar";
 import Footer from "@/components/common/Footer";
 import { AuthInitializer } from "@/services/authInitializer";
 import ChatWidget from "@/components/support/ChatWidget";
+import Providers from "./providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,11 +35,13 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthInitializer />
-        <Navbar />
-        {children}
-        <Footer />
-        <ChatWidget />
+        <Providers>
+          <AuthInitializer />
+          <Navbar />
+          {children}
+          <Footer />
+          <ChatWidget />
+        </Providers>
       </body>
     </html>
   );

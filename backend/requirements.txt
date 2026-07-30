@@ -15,16 +15,25 @@ charset-normalizer==3.4.3
 click==8.2.1
 cloudinary==1.44.0
 coverage==7.11.0
-cryptography==46.0.3
+cryptography==48.0.1
 dnspython==2.7.0
 ecdsa==0.19.1
 email_validator==2.2.0
 exceptiongroup==1.3.0
 factory_boy==3.3.3
 Faker>=30.0.0
-fastapi==0.115.12
+fastapi==0.140.0
 # fastapi-limiter removed — replaced by our Redis rate limiter (Phase 1).
 freezegun==1.5.5
+# Property-based testing (Tier-1 testing depth). We use hypothesis both for
+# pure-logic properties AND for schema-fuzzing our endpoints (the "never a 5xx
+# on any input" contract guarantee). NOTE: schemathesis (the dedicated OpenAPI
+# fuzzer) was evaluated and deliberately NOT adopted — its 4.x line requires
+# pytest 9 (would break our pytest-8 plugin stack) and its 3.x line pins
+# starlette <1.0 (would undo the starlette 1.3.1 CVE upgrade). The hand-rolled
+# hypothesis fuzz test gives the same not-a-server-error signal with no
+# dependency conflict.
+hypothesis==6.161.5
 google-ai-generativelanguage==0.6.15
 google-api-core==2.25.1
 google-api-python-client==2.182.0
@@ -38,19 +47,22 @@ grpcio==1.75.0
 grpcio-status==1.71.2
 h11==0.16.0
 httpcore==1.0.9
-httplib2==0.31.0
+httplib2==0.32.0
 httpx==0.28.1
 idna==3.10
 inflection==0.5.1
 iniconfig==2.3.0
-Mako==1.3.10
+Mako==1.3.12
 MarkupSafe==3.0.2
 oauthlib==3.3.1
 packaging==25.0
 passlib==1.7.4
 pluggy==1.6.0
 proto-plus==1.26.1
-protobuf==5.29.5
+# protobuf: 5.29.6 is the patch that fixes CVE-2026-0994 while staying <6, so
+# the Gemini client (google-generativeai / grpcio-status pin protobuf<6) keeps
+# working — no need for the risky 6.x major.
+protobuf==5.29.6
 psycopg==3.2.12
 psycopg-binary==3.2.12
 # recommended by claude opus 4.7: SQLAlchemy defaults the `postgresql://`
@@ -59,7 +71,10 @@ psycopg-binary==3.2.12
 # and prod Cloud Run secrets). We keep both drivers installed so URLs
 # stay stable — v3 for anyone who opts in via `+psycopg`, v2 by default.
 psycopg2-binary==2.9.11
-pyasn1==0.6.1
+# asyncpg — the async Postgres driver for SQLAlchemy's async engine (the
+# request path uses postgresql+asyncpg://). Sync paths keep psycopg2/psycopg.
+asyncpg==0.30.0
+pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==2.23
 pydantic==2.11.7
@@ -77,7 +92,7 @@ pytest-socket==0.7.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
 python-jose==3.5.0
-python-multipart==0.0.20
+python-multipart==0.0.32
 PyYAML==6.0.3
 # recommended by claude opus 4.7: redis-py 5.x — celery[redis] 5.4.0 pins
 # redis<6, and 5.2.1 is the latest that satisfies both celery and fakeredis.
@@ -93,19 +108,28 @@ six==1.17.0
 sniffio==1.3.1
 SQLAlchemy==2.0.41
 SQLAlchemy-Utils==0.42.0
-starlette==0.46.2
+starlette==1.3.1
 tenacity==9.1.2
 tomli==2.2.1
 tqdm==4.67.1
-typing-inspection==0.4.1
+typing-inspection==0.4.2
+# annotated-doc — new transitive dep pulled by fastapi 0.140 (pinned for repro).
+annotated-doc==0.0.4
 typing_extensions==4.14.0
 tzdata==2025.2
 uritemplate==4.2.0
-urllib3==2.4.0
-uvicorn==0.34.3
+urllib3==2.7.0
+uvicorn==0.51.0
 # WHY: bare uvicorn has no WebSocket support — it needs `websockets` or
 # `wsproto` installed separately (or the `uvicorn[standard]` extra, which
 # pulls in more than just this). Every /ws/* route (notifications, support
 # chatbot) 404s on the upgrade handshake without it — this was silently
 # missing, breaking both endpoints in every environment, not just prod.
 websockets==13.1
+# ----- Observability (Phase 1: structured logs already stdlib; these add
+# error tracking + metrics). Both are imported defensively — the app runs
+# without them, so local dev needn't install them. -----
+sentry-sdk[fastapi]==2.66.1
+# 8.x is the first line that allows starlette 1.x (7.0.0 pinned starlette<1.0,
+# which blocked the starlette CVE fixes).
+prometheus-fastapi-instrumentator==8.1.0

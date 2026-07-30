@@ -1,0 +1,4 @@
+# Load-test-only dependency. Kept OUT of the app image (backend/requirements.txt)
+# so the deployed container stays lean — install this separately when running a
+# load drill. See locustfile.py for how to run.
+locust==2.46.2

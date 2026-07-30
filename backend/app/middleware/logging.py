@@ -3,14 +3,22 @@ import time, uuid, logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request
 
+from app.utils.log_context import set_request_id
+
 class LoggingMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, logger_name: str = "app"):
         super().__init__(app)
         self.logger = logging.getLogger(logger_name)
 
     async def dispatch(self, request: Request, call_next):
-        request_id = str(uuid.uuid4())
+        # Honor an upstream request id (gateway/proxy/client) so a trace can be
+        # correlated across services; otherwise mint one.
+        incoming = request.headers.get("x-request-id")
+        request_id = incoming if incoming else str(uuid.uuid4())
         request.state.request_id = request_id
+        # Bind to the contextvar too, so log lines emitted deep in services —
+        # where there's no Request object — still carry this id.
+        set_request_id(request_id)
         start = time.perf_counter()
         try:
             response = await call_next(request)

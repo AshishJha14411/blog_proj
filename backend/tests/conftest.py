@@ -34,8 +34,62 @@ os.environ.setdefault("NO_NETWORK", "1")
 # Import AFTER env is locked
 from app.core.config import settings
 from app.main import app
-from app.dependencies import get_db
+from app.dependencies import get_db, get_async_db
 from app.utils.security import create_access_token
+
+
+# ------------------------------------------------------------------
+#  SYNC -> ASYNC SESSION ADAPTER (for testing async routes/services)
+# ------------------------------------------------------------------
+# The async request path (get_async_db + async story reads) expects an
+# AsyncSession. Our test isolation, however, is built on ONE sync psycopg2
+# connection inside an outer transaction + SAVEPOINT (see db_session): that's
+# what gives every test a private schema and a clean rollback. A real async
+# engine would be a *different* connection/transaction and couldn't see the
+# factory rows staged in the sync SAVEPOINT.
+#
+# This shim presents that same sync Session behind the async Session API
+# (`await execute/get/commit/rollback`), so async endpoints and services run
+# inside the exact test transaction. No real event-loop IO happens — psycopg2
+# executes synchronously under the `await`, which is precisely what we want for
+# deterministic, isolated tests. The `Result` returned by a sync `execute` is
+# the same object an async `execute` yields, so `.scalars()/.first()/.all()/
+# .unique()/.scalar()` all work unchanged downstream.
+class _AsyncSessionAdapter:
+    def __init__(self, sync_session: Session):
+        self._s = sync_session
+
+    async def execute(self, statement, params=None, **kw):
+        return self._s.execute(statement, params, **kw)
+
+    async def get(self, entity, ident, **kw):
+        return self._s.get(entity, ident, **kw)
+
+    async def scalar(self, statement, params=None, **kw):
+        return self._s.scalar(statement, params, **kw)
+
+    def add(self, obj):
+        self._s.add(obj)
+
+    async def commit(self):
+        self._s.commit()
+
+    async def rollback(self):
+        self._s.rollback()
+
+    async def flush(self):
+        self._s.flush()
+
+    async def refresh(self, obj, *a, **k):
+        self._s.refresh(obj, *a, **k)
+
+    async def delete(self, obj):
+        self._s.delete(obj)
+
+    def __getattr__(self, name):
+        # Anything not explicitly shimmed (e.g. .no_autoflush) falls through to
+        # the wrapped sync session.
+        return getattr(self._s, name)
 
 # Optional: if you have provider dependencies, import here to override.
 # from app.dependencies import get_mailer, get_cloudinary
@@ -115,6 +169,25 @@ def db_engine():
         # check first, and skipping the check is what makes tables actually
         # get created here instead of silently falling through to `public`.
         Base.metadata.create_all(conn, checkfirst=False)
+        # `search_vector` (full-text search) is a GENERATED column created by
+        # Alembic migration d4e5f6a7b8c9 via raw SQL — it is NOT on the ORM
+        # model, so create_all() doesn't build it. Mirror the migration here so
+        # the schema matches production and /stories/search is actually testable
+        # (without this, any search query 500s with "column does not exist").
+        conn.execute(text(
+            """
+            ALTER TABLE stories
+            ADD COLUMN IF NOT EXISTS search_vector tsvector
+            GENERATED ALWAYS AS (
+                setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(content, '')), 'B')
+            ) STORED
+            """
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_stories_search_vector "
+            "ON stories USING GIN (search_vector)"
+        ))
 
     yield engine
 
@@ -312,13 +385,48 @@ def dummy_cloudinary():
 # ------------------------------------------------------------------
 #  FASTAPI CLIENT (PER TEST) + DB OVERRIDE
 # ------------------------------------------------------------------
+# REST routers moved under /api/v1 (see app/main.py). Rather than rewrite every
+# test path, this client transparently prepends the version to bare REST paths.
+# Infra (/, /healthz, /metrics, /openapi…) and WebSocket (/ws) paths pass
+# through unchanged — they're not part of the versioned contract. websocket
+# connections use a different method (websocket_connect) so they never hit this.
+_API_V1_PREFIX = "/api/v1"
+_PASSTHROUGH_PREFIXES = ("/api/", "/ws", "/healthz", "/metrics", "/openapi", "/docs", "/redoc")
+
+
+class _PrefixedTestClient(TestClient):
+    def request(self, method, url, *args, **kwargs):
+        if (
+            isinstance(url, str)
+            and url.startswith("/")
+            and url != "/"
+            and not url.startswith(_PASSTHROUGH_PREFIXES)
+        ):
+            url = _API_V1_PREFIX + url
+        return super().request(method, url, *args, **kwargs)
+
+
 @pytest.fixture(scope="function")
 def client(db_session: Session):
     def _override_get_db():
         yield db_session
 
+    # Async routes get the SAME sync transaction via the adapter, and this
+    # override mirrors get_async_db's unit-of-work: commit on success (so
+    # staged writes like the story view-log land in the SAVEPOINT and are
+    # visible to the test's follow-up queries), roll back on error.
+    async def _override_get_async_db():
+        adapter = _AsyncSessionAdapter(db_session)
+        try:
+            yield adapter
+            await adapter.commit()
+        except Exception:
+            await adapter.rollback()
+            raise
+
     app.dependency_overrides[get_db] = _override_get_db
-    client = TestClient(app)
+    app.dependency_overrides[get_async_db] = _override_get_async_db
+    client = _PrefixedTestClient(app)
     try:
         yield client
     finally:

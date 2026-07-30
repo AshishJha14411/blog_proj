@@ -21,7 +21,7 @@ describe('Full-Stack Story E2E Journey', () => {
   before(() => {
     cy.request({
       method: 'POST',
-      url: 'http://localhost:8000/auth/signup', 
+      url: 'http://localhost:8000/api/v1/auth/signup', 
       body: {
         username: creatorUser.username, // This username will trigger our backend fix
         email: creatorUser.email,
@@ -35,7 +35,7 @@ describe('Full-Stack Story E2E Journey', () => {
     // 1. Log in via the API to get tokens
     cy.request({
       method: 'POST',
-      url: 'http://localhost:8000/auth/login',
+      url: 'http://localhost:8000/api/v1/auth/login',
       body: {
         username: creatorUser.username,
         password: creatorUser.password,

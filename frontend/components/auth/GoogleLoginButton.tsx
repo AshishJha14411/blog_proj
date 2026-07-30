@@ -8,7 +8,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export default function GoogleLoginButton() {
   // The button is now just a simple link that kicks off the entire backend flow.
-  const href = `${API_URL}/auth/google/login`;
+  // Browser navigation (not axios), so the /api/v1 version prefix is explicit.
+  const href = `${API_URL}/api/v1/auth/google/login`;
 
   return (
     <a href={href} className="w-full">

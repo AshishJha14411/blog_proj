@@ -17,10 +17,12 @@ from typing import Optional
 from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 from jose import JWTError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, AsyncSessionLocal
 from app.models.user import User
 from app.utils.email import Mailer
 from app.utils.security import decode_access_token, pwd_context
@@ -40,6 +42,62 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+async def get_async_db():
+    """Async session with a one-transaction-per-request boundary.
+
+    The dependency OWNS the transaction: the request either commits fully on
+    success or rolls back on any exception. Async request-path services should
+    NOT commit themselves — they just stage work, and this seam decides the
+    outcome. (Unit-of-work pattern.)
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def get_current_user_async(
+    token: Optional[str] = Depends(oauth2_scheme),
+    refresh_token: Optional[str] = Cookie(default=None),
+    db: AsyncSession = Depends(get_async_db),
+) -> User:
+    """Async twin of get_current_user for async routes."""
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("user_id")
+        if user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+    # Eager-load `role`: has_perm()/require() read user.role.name, and async
+    # sessions can't lazy-load it later without raising MissingGreenlet.
+    user = await db.get(User, user_id, options=[joinedload(User.role)])
+    if user is None or user.is_disabled:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or disabled")
+    return user
+
+
+async def get_current_user_optional_async(
+    creds: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db),
+) -> User | None:
+    """Async twin of get_current_user_optional — None for anonymous callers."""
+    if creds:
+        try:
+            payload = decode_access_token(creds.credentials)
+            # Eager-load `role` — see get_current_user_async for why.
+            return await db.get(User, payload.get("user_id"), options=[joinedload(User.role)])
+        except JWTError:
+            return None
+    return None
 
 
 def get_password_hasher():

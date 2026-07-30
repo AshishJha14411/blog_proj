@@ -38,7 +38,7 @@ describe('Negative flows', () => {
     // A random UUID that no story owns.
     const missing = '00000000-0000-0000-0000-000000000000';
     cy.request({
-      url: `http://localhost:8000/stories/${missing}`,
+      url: `http://localhost:8000/api/v1/stories/${missing}`,
       failOnStatusCode: false,
     }).its('status').should('eq', 404);
 
@@ -59,12 +59,12 @@ describe('Negative flows', () => {
 
     cy.request({
       method: 'POST',
-      url: 'http://localhost:8000/auth/signup',
+      url: 'http://localhost:8000/api/v1/auth/signup',
       body: creator,
       failOnStatusCode: false,
     }).its('status').should('be.oneOf', [201, 409]);
 
-    cy.request('POST', 'http://localhost:8000/auth/login', {
+    cy.request('POST', 'http://localhost:8000/api/v1/auth/login', {
       username: creator.username,
       password: creator.password,
     }).then((login) => {
@@ -72,7 +72,7 @@ describe('Negative flows', () => {
 
       cy.request({
         method: 'POST',
-        url: 'http://localhost:8000/stories/',
+        url: 'http://localhost:8000/api/v1/stories/',
         headers: { Authorization: `Bearer ${token}` },
         body: {
           title: `soft-delete story ${randomId()}`,
@@ -86,7 +86,7 @@ describe('Negative flows', () => {
         // Soft-delete via the DELETE endpoint.
         cy.request({
           method: 'DELETE',
-          url: `http://localhost:8000/stories/${storyId}`,
+          url: `http://localhost:8000/api/v1/stories/${storyId}`,
           headers: { Authorization: `Bearer ${token}` },
         }).its('status').should('be.oneOf', [200, 204]);
 
@@ -94,7 +94,7 @@ describe('Negative flows', () => {
         // (W5 regression lock — mirrors test_get_story_details_404_when_soft_deleted).
         cy.request({
           method: 'GET',
-          url: `http://localhost:8000/stories/${storyId}`,
+          url: `http://localhost:8000/api/v1/stories/${storyId}`,
           headers: { Authorization: `Bearer ${token}` },
           failOnStatusCode: false,
         }).its('status').should('eq', 404);

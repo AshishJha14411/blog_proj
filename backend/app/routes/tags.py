@@ -6,13 +6,13 @@ from app.models.user import User
 from app.schemas.tags import TagCreate, TagUpdate, TagOut, TagList
 from app.services.tags import list_tags, create_tag, update_tag, delete_tag
 from app.dependencies import get_db
-from app import dependencies as deps  # import the module, not the function
+from app.authz import Perm, require
 
 router = APIRouter(prefix="/tags", tags=["Tags"])
 
-# ✅ define these ONCE at module level so tests can import the exact same objects
-creator_or_superadmin = deps.require_roles("creator", "superadmin")
-superadmin_only = deps.require_roles("superadmin")
+# Permission-gated dependencies (shared instances so tests can override them).
+can_create_tag = require(Perm.TAG_CREATE)
+can_manage_tag = require(Perm.TAG_MANAGE)
 
 
 @router.get("/", response_model=TagList, status_code=status.HTTP_200_OK)
@@ -25,7 +25,7 @@ def read_tags(db: Session = Depends(get_db)):
 def add_tag(
     data: TagCreate,
     db: Session = Depends(get_db),
-    _user: User = Depends(creator_or_superadmin),     # ✅ use the shared callable
+    _user: User = Depends(can_create_tag),
 ):
     tag = create_tag(db, name=data.name, description=data.description)
     return TagOut(id=str(tag.id), name=tag.name, description=tag.description)
@@ -36,7 +36,7 @@ def change_tag(
     tag_id: uuid.UUID,
     data: TagUpdate,
     db: Session = Depends(get_db),
-    _user: User = Depends(superadmin_only),           # ✅ use the shared callable
+    _user: User = Depends(can_manage_tag),
 ):
     tag = update_tag(db, tag_id, name=data.name, description=data.description)
     return TagOut(id=str(tag.id), name=tag.name, description=tag.description)
@@ -46,6 +46,6 @@ def change_tag(
 def remove_tag(
     tag_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: User = Depends(superadmin_only),           # ✅ use the shared callable
+    _user: User = Depends(can_manage_tag),
 ):
     delete_tag(db, tag_id)

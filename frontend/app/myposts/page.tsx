@@ -1,42 +1,25 @@
-
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { getMyPost } from '@/services/postService';
-import { Post } from '@/services/postService';
+import React, { useEffect } from 'react';
 import PostCard from '@/components/common/PostCard'; // We are reusing the smart PostCard
 import { useHydratedAuth } from '@/hooks/useHydratedAuth';
 import { useRouter } from 'next/navigation';
+import { useMyStories } from '@/hooks/queries';
 
 export default function MyPostsPage() {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
   const { isAuthenticated, isHydrated } = useHydratedAuth();
   const router = useRouter();
 
+  // TanStack owns the fetch + cache + loading/error state — the old
+  // useEffect/useState/cancelled dance is gone. The query only runs once auth
+  // has hydrated and the user is logged in (`enabled`).
+  const { data: posts = [], isLoading } = useMyStories(10, 0, isHydrated && isAuthenticated);
+
   useEffect(() => {
-    if (isHydrated && !isAuthenticated) {
-      router.push('/login');
-      return;
-    }
+    if (isHydrated && !isAuthenticated) router.push('/login');
+  }, [isHydrated, isAuthenticated, router]);
 
-    if (!isAuthenticated) return;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await getMyPost();
-        if (!cancelled) setPosts(response.items);
-      } catch {
-        // swallow: the loading state will resolve and the empty view will show
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isAuthenticated, isHydrated, router]);
-
-  if (!isHydrated || loading) {
+  if (!isHydrated || (isAuthenticated && isLoading)) {
     return <p className="p-8 text-center">Loading your posts...</p>;
   }
 
@@ -55,4 +38,3 @@ export default function MyPostsPage() {
     </main>
   );
 }
-

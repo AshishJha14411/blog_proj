@@ -1,133 +1,64 @@
+/**
+ * Server component for a story page. Its ONLY job here is SEO: fetch the story
+ * server-side and emit real <title>/<meta description>/OpenGraph tags so search
+ * engines and social cards see the actual story, not an empty client shell.
+ * The interactive body renders in StoryDetailClient.
+ */
+import type { Metadata } from "next";
+import StoryDetailClient from "./StoryDetailClient";
 
-'use client';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
-import { getPostById } from '@/services/postService';
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
-import { Post } from '@/services/postService';
-import PostActions from '@/components/common/PostActions';
-import CommentList from '@/components/common/CommentList';
-import InteractionButtons from '@/components/common/InteractionButtons';
-import RegenerateWithFeedback from "@/components/story/RegenrateWithFeedback";
-import PublishControls from "@/components/story/PublishControls";
-import DOMPurify from "isomorphic-dompurify";
-import Link from 'next/link';
-import { useHydratedAuth } from '@/hooks/useHydratedAuth';
-import AdSlot from '@/components/ads/AdSlot';
-export default function PostDetailPage() {
-  const [post, setPost] = useState<Post | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-const { user, isAuthenticated, isHydrated } = useHydratedAuth();
-  const params = useParams();
-  const postId = params.postId as string;
-
-  useEffect(() => {
-    if (!postId) return;
-
-    const fetchPost = async () => {
-      try {
-        const postData = await getPostById(postId);
-        console.log(postData)
-        setPost(postData);
-      } catch {
-        setError('Post not found or you do not have permission to view it.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPost();
-  }, [postId]);
-
-const canModify =
-  isHydrated &&
-  isAuthenticated && post !== null &&
-  (
-    user?.id === post.user.id ||
-    ['moderator', 'superadmin'].includes(user?.role?.name ?? '')
-  );
-  if (loading) {
-    return <p className="p-8 text-center">Loading post...</p>;
+async function fetchStory(postId: string) {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/stories/${postId}`, { next: { revalidate: 300 } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
+}
 
-  if (error) {
-    return <p className="p-8 text-center text-red-500">{error}</p>;
+function toDescription(html: string | undefined, fallback: string): string {
+  if (!html) return fallback;
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return text.slice(0, 160) || fallback;
+}
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ postId: string }> },
+): Promise<Metadata> {
+  const { postId } = await params;
+  const story = await fetchStory(postId);
+  if (!story) {
+    return { title: "Story not found — Quill & Code" };
   }
+  const title = `${story.title} — Quill & Code`;
+  const description = toDescription(story.content, story.header || story.summary || "A story on Quill & Code.");
+  const url = `${SITE_URL}/userStory/${postId}`;
+  return {
+    title,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      title,
+      description,
+      url,
+      type: "article",
+      images: story.cover_image_url ? [{ url: story.cover_image_url }] : undefined,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+  };
+}
 
-  // This check prevents the "Cannot read properties of null" error
-  if (!post) {
-    return <p className="p-8 text-center">Post not found.</p>;
-  }
-  // console.log(post)
- return (
-    <main className="mx-auto max-w-3xl p-8 font-sans">
-      <article>
-        <h1 className="mb-4 text-4xl font-bold text-text">{post.title}</h1>
-
-        {/* ⬇️ Inline banner under title */}
-        <AdSlot className="my-6" />
-
-        <PostActions
-          postAuthorId={post.user.id}
-          postId={post.id}
-          isAI={post.source === 'ai'}
-        />
-        <div className="mb-8 text-sm text-text-light">
-          <span>By {post.user.username}</span>
-          <span className="mx-2">•</span>
-          <span>{new Date(post.created_at).toLocaleDateString()}</span>
-        </div>
-
-        {/* mid-article slot */}
-        <AdSlot className="my-6" />
-
-        <div
-          className="prose lg:prose-xl text-text"
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(post.content || "") }}
-        />
-
-        <div className="mb-4 flex flex-wrap gap-2">
-          {post.tags.map((tag) => (
-            <Link
-              href={`/tags/${tag.name}`}
-              key={tag.id}
-              className="text-sm font-medium bg-primary/10 text-primary px-2 py-1 rounded-full hover:bg-primary hover:text-white transition-colors"
-            >
-              #{tag.name}
-            </Link>
-          ))}
-        </div>
-      </article>
-
-      {/* meta + owner controls (unchanged) */}
-      {post.source === "ai" && (
-        <div className="mb-4 text-sm text-gray-600">
-          <div>Generated by AI • version {post.version ?? 1}</div>
-          <div>
-            Genre: {post.genre || "—"} | Tone: {post.tone || "—"} | Length: {post.length_label || "—"}
-          </div>
-        </div>
-      )}
-      {canModify && <PublishControls postId={post.id} isPublished={post.is_published} />}
-      {post.source === "ai" && canModify && (
-        <div className="mt-8">
-          <RegenerateWithFeedback postId={post.id} />
-        </div>
-      )}
-
-      {/* ⬇️ Pre-comments slot */}
-      <AdSlot className="my-8" />
-
-      <div className="mt-8 border-t pt-4">
-        <InteractionButtons
-          postId={post.id}
-          initialLiked={post.is_liked_by_user}
-          initialBookmarked={post.is_bookmarked_by_user}
-        />
-      </div>
-
-      <CommentList postId={postId} />
-    </main>
-  );
+export default async function PostDetailPage(
+  { params }: { params: Promise<{ postId: string }> },
+) {
+  const { postId } = await params;
+  return <StoryDetailClient postId={postId} />;
 }

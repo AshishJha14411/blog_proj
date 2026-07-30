@@ -90,5 +90,14 @@ class Story(Base):
 
     # Feedback & Revisions
     parent_id = Column(UUID(as_uuid=True), ForeignKey("stories.id"), nullable=True) # Corrected: self-referencing FK
-    version = Column(Integer, default=1)
+    version = Column(Integer, default=1)          # revision number (regenerate bumps it)
     last_feedback = Column(Text, nullable=True)
+
+    # Optimistic-lock counter — SEPARATE from `version` (which is a revision
+    # number). SQLAlchemy adds `WHERE row_version = :current` to every UPDATE
+    # and increments it; if a concurrent write already bumped it, the UPDATE
+    # matches 0 rows and raises StaleDataError. Lost-update prevention without
+    # row locks. See __mapper_args__ below.
+    row_version = Column(Integer, nullable=False, default=1)
+
+    __mapper_args__ = {"version_id_col": row_version}

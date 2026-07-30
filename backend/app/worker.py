@@ -39,6 +39,7 @@ celery_app = Celery(
         "app.tasks.email",
         "app.tasks.moderation",
         "app.tasks.support",
+        "app.tasks.webhook",
         # future task modules go here; keep the list explicit so imports fire
         # and @task registrations happen at worker start, not lazily.
     ],
@@ -106,6 +107,7 @@ celery_app.conf.update(
         "app.tasks.email.*": {"queue": "default"},
         "app.tasks.moderation.*": {"queue": "default"},
         "app.tasks.support.*": {"queue": "default"},
+        "app.tasks.webhook.*": {"queue": "default"},
     },
 
     # recommended by claude opus 4.7: keep task registration explicit; do NOT
@@ -113,6 +115,27 @@ celery_app.conf.update(
     # circular-import bugs mysterious.
     imports=[],
 )
+
+
+# ---------------------------------------------------------------------------
+# WORKERLESS MODE (cost decision — see app/core/config.py + docs/adr/001)
+# ---------------------------------------------------------------------------
+# /** WHY: a polling Celery worker cannot scale to zero on Cloud Run, so it
+#     bills for a CPU 24/7. On a personal project that is the whole bill. **/
+# /** WHAT: `task_always_eager` runs `.delay()` inline in the caller instead of
+#     shipping it to a broker, so NO worker process is needed at all. Every
+#     enqueue site commits before enqueueing, so the inline task sees a
+#     committed row. **/
+# /** WHY-THIS-WAY: `task_eager_propagates=False` is the important half. With
+#     it True (the test setting) a failing task would raise straight into the
+#     request and 500 a story-publish because the LLM hiccuped. False keeps the
+#     failure inside the task: the write already succeeded, the story simply
+#     stays `pending` and can be re-published to retry. Degrade, don't explode. **/
+if settings.CELERY_TASK_ALWAYS_EAGER:
+    celery_app.conf.update(
+        task_always_eager=True,
+        task_eager_propagates=False,
+    )
 
 
 # ---------------------------------------------------------------------------

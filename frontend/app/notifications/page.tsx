@@ -1,46 +1,38 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { getNotifications, markRead, NotificationItem } from "@/services/notificationService";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { markRead } from "@/services/notificationService";
+import { useNotifications } from "@/hooks/queries";
 
 export default function NotificationsPage() {
-  const [items, setItems] = useState<NotificationItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [limit] = useState(20);
+  const limit = 20;
   const [offset, setOffset] = useState(0);
+  const queryClient = useQueryClient();
 
-  const load = useCallback(async () => {
-    try {
-      const res = await getNotifications(false, limit, offset);
-      setItems(res.items);
-      setTotal(res.total);
-      setError(null);
-    } catch {
-      setError("Couldn't load notifications. Please try again in a moment.");
-    }
-  }, [limit, offset]);
+  // TanStack owns the fetch: no useEffect, no manual loading/error/cancelled
+  // flags, no stale-response races. Changing `offset` changes the query key,
+  // which refetches (and caches) automatically.
+  const { data, isError } = useNotifications(false, limit, offset);
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await getNotifications(false, limit, offset);
-        if (cancelled) return;
-        setItems(res.items);
-        setTotal(res.total);
-        setError(null);
-      } catch {
-        if (!cancelled) setError("Couldn't load notifications. Please try again in a moment.");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [limit, offset]);
+  // Mutation + invalidation replaces the old hand-rolled `load()` re-fetch:
+  // marking one read invalidates the notifications cache, which refetches.
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => markRead(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
 
   return (
     <main className="mx-auto max-w-3xl p-6">
       <h1 className="text-2xl font-semibold mb-4">Notifications</h1>
-      {error && <div className="mb-4 rounded border border-red-300 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+      {isError && (
+        <div className="mb-4 rounded border border-red-300 bg-red-50 p-2 text-sm text-red-700">
+          Couldn&apos;t load notifications. Please try again in a moment.
+        </div>
+      )}
       {items.length === 0 ? (
         <div className="text-gray-500">No notifications.</div>
       ) : (
@@ -51,7 +43,11 @@ export default function NotificationsPage() {
                 {/* F11: guard against server sending a null action */}
                 <div className={!n.is_read ? "font-medium" : ""}>{(n.action ?? "").replaceAll("_", " ")}</div>
                 {!n.is_read && (
-                  <button className="text-xs underline" onClick={async () => { await markRead(n.id); load(); }}>
+                  <button
+                    className="text-xs underline disabled:opacity-50"
+                    disabled={markReadMutation.isPending}
+                    onClick={() => markReadMutation.mutate(n.id)}
+                  >
                     Mark read
                   </button>
                 )}

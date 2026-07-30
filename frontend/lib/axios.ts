@@ -21,8 +21,14 @@ export const API_URL = typeof window === 'undefined'
   ? (process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
   : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
+// The REST API is versioned under /api/v1 (see backend main.py). The shared
+// axios instance targets that base, so every service call is automatically
+// versioned. `API_URL` (bare host) is kept for things that are NOT under the
+// versioned prefix: the WebSocket handshake + its /ws/ticket mint.
+export const API_V1_URL = `${API_URL}/api/v1`;
+
 const axiosInstance = axios.create({
-  baseURL: API_URL,
+  baseURL: API_V1_URL,
   // --- CRITICAL: This tells axios to send cookies with every request ---
   withCredentials: true,
   timeout: 30000,               // free-tier cold starts can take ~20s
@@ -52,7 +58,7 @@ async function refreshAccessToken(): Promise<string | null> {
     try {
       // Send the stored refresh token in the body — the third-party cookie
       // can't be relied on across domains (see authStore/refreshSession).
-      const resp = await axios.post(`${API_URL}/auth/refresh`, { refresh_token: refreshToken }, {
+      const resp = await axios.post(`${API_V1_URL}/auth/refresh`, { refresh_token: refreshToken }, {
         withCredentials: true, // Be explicit for this call
         timeout: 30000,        // raw axios stays outside the interceptor chain
       });

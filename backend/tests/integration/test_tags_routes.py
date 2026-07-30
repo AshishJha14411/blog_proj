@@ -6,7 +6,10 @@ from fastapi.testclient import TestClient
 
 from app.models.role import Role
 from app.models.tags import Tag
-from app.routes.tags import creator_or_superadmin, superadmin_only  # <-- import shared callables
+# Shared authz gate objects — overridden per-test to simulate a passing gate.
+# (Phase 3 authz refactor renamed these: the old creator_or_superadmin gate is
+#  now can_create_tag, and the old superadmin_only gate is now can_manage_tag.)
+from app.routes.tags import can_create_tag, can_manage_tag
 
 pytestmark = pytest.mark.integration
 
@@ -55,9 +58,9 @@ def test_create_tag_success_with_creator(client: TestClient, db_session: Session
     role = _ensure_role(db_session, "creator")
     user = UserFactory(role=role)
 
-    client.app.dependency_overrides[creator_or_superadmin] = _override_require_roles(user)
+    client.app.dependency_overrides[can_create_tag] = _override_require_roles(user)
     res = client.post("/tags/", json={"name": "backend", "description": "all about backend"})
-    client.app.dependency_overrides.pop(creator_or_superadmin, None)
+    client.app.dependency_overrides.pop(can_create_tag, None)
 
     assert res.status_code == 201, res.text
     body = res.json()
@@ -74,9 +77,9 @@ def test_create_tag_conflict_409(client: TestClient, db_session: Session):
     role = _ensure_role(db_session, "creator")
     user = UserFactory(role=role)
 
-    client.app.dependency_overrides[creator_or_superadmin] = _override_require_roles(user)
+    client.app.dependency_overrides[can_create_tag] = _override_require_roles(user)
     res = client.post("/tags/", json={"name": "dupe", "description": None})
-    client.app.dependency_overrides.pop(creator_or_superadmin, None)
+    client.app.dependency_overrides.pop(can_create_tag, None)
 
     assert res.status_code == 409
 
@@ -88,9 +91,9 @@ def test_update_tag_404(client: TestClient, db_session: Session):
     role = _ensure_role(db_session, "superadmin")
     user = UserFactory(role=role)
 
-    client.app.dependency_overrides[superadmin_only] = _override_require_roles(user)
+    client.app.dependency_overrides[can_manage_tag] = _override_require_roles(user)
     res = client.patch(f"/tags/{uuid.uuid4()}", json={"name": "x", "description": "y"})
-    client.app.dependency_overrides.pop(superadmin_only, None)
+    client.app.dependency_overrides.pop(can_manage_tag, None)
 
     assert res.status_code == 404
 
@@ -101,9 +104,9 @@ def test_update_tag_success_with_superadmin(client: TestClient, db_session: Sess
     role = _ensure_role(db_session, "superadmin")
     user = UserFactory(role=role)
 
-    client.app.dependency_overrides[superadmin_only] = _override_require_roles(user)
+    client.app.dependency_overrides[can_manage_tag] = _override_require_roles(user)
     res = client.patch(f"/tags/{tag.id}", json={"name": "renamed", "description": "d1"})
-    client.app.dependency_overrides.pop(superadmin_only, None)
+    client.app.dependency_overrides.pop(can_manage_tag, None)
 
     assert res.status_code == 200, res.text
     body = res.json()
@@ -121,10 +124,10 @@ def test_update_tag_conflict_409(client: TestClient, db_session: Session):
     role = _ensure_role(db_session, "superadmin")
     user = UserFactory(role=role)
 
-    client.app.dependency_overrides[superadmin_only] = _override_require_roles(user)
+    client.app.dependency_overrides[can_manage_tag] = _override_require_roles(user)
     # rename "a" to existing "b" -> conflict
     res = client.patch(f"/tags/{a.id}", json={"name": "b"})
-    client.app.dependency_overrides.pop(superadmin_only, None)
+    client.app.dependency_overrides.pop(can_manage_tag, None)
 
     assert res.status_code == 409
 
@@ -138,9 +141,9 @@ def test_delete_tag_success_with_superadmin(client: TestClient, db_session: Sess
     role = _ensure_role(db_session, "superadmin")
     user = UserFactory(role=role)
 
-    client.app.dependency_overrides[superadmin_only] = _override_require_roles(user)
+    client.app.dependency_overrides[can_manage_tag] = _override_require_roles(user)
     res = client.delete(f"/tags/{tag.id}")
-    client.app.dependency_overrides.pop(superadmin_only, None)
+    client.app.dependency_overrides.pop(can_manage_tag, None)
 
     assert res.status_code == 204
     assert db_session.get(Tag, tag.id) is None
@@ -150,8 +153,8 @@ def test_delete_tag_404(client: TestClient, db_session: Session):
     role = _ensure_role(db_session, "superadmin")
     user = UserFactory(role=role)
 
-    client.app.dependency_overrides[superadmin_only] = _override_require_roles(user)
+    client.app.dependency_overrides[can_manage_tag] = _override_require_roles(user)
     res = client.delete(f"/tags/{uuid.uuid4()}")
-    client.app.dependency_overrides.pop(superadmin_only, None)
+    client.app.dependency_overrides.pop(can_manage_tag, None)
 
     assert res.status_code == 404

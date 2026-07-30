@@ -6,6 +6,8 @@ from datetime import date, datetime
 class DayCount(BaseModel):
     day: date
     count: int
+    # Cumulative total up to and including this day (SUM() OVER window function).
+    running_total: int = 0
 
 class PostsDaily(BaseModel):
     stats: List[DayCount]
