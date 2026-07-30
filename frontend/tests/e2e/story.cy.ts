@@ -48,7 +48,11 @@ describe('Full-Stack Story E2E Journey', () => {
       cy.setCookie('refresh_token', refresh_token, {
         httpOnly: true,
         secure: false, // Set to false for localhost
-        path: '/auth',
+        // Must match the backend's COOKIE_PATH (routes/auth.py), which is "/"
+        // while the API is mounted at BOTH /auth and /api/v1/auth. A cookie
+        // scoped to "/auth" is simply not sent to /api/v1/auth/*, so pinning the
+        // old path here would silently stop exercising the cookie path at all.
+        path: '/',
       });
 
       // 4. Set the auth state in localStorage for Zustand
