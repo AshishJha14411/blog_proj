@@ -31,7 +31,15 @@ IS_DEV = settings.IS_DEV
 
 COOKIE_SECURE   = not IS_DEV                # Secure only in prod
 COOKIE_SAMESITE = "none" if not IS_DEV else "lax"
-COOKIE_PATH     = "/auth"
+# /** WHY "/": the auth router is mounted at BOTH /auth (legacy) and
+#     /api/v1/auth during the version-migration window (see main.py). A cookie
+#     scoped to one path is simply not sent to the other, which would break
+#     refresh/logout for whichever surface the client happens to use. "/" covers
+#     both. **/
+# /** TIGHTEN TO "/api/v1/auth" once the legacy mount is removed — path scoping
+#     is defence-in-depth for an HttpOnly cookie, so widening it for the window
+#     is an acceptable, deliberate trade rather than an oversight. **/
+COOKIE_PATH     = "/"
 # COOKIE_DOMAIN = settings.COOKIE_DOMAIN  # only set this in prod if you need cross-subdomain
 
 def set_refresh_cookie(response: Response, token: str):

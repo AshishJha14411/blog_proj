@@ -130,6 +130,18 @@ def moderate_story_task(self, *, story_id: str) -> dict:
         story.updated_at = datetime.now(timezone.utc)
         db.commit()
 
+        # Fire the outbound webhook event AFTER the commit — subscribers should
+        # only hear about state that's actually durable. Import lazily to keep
+        # the webhook/Celery graph out of this module's import path.
+        from app.services.webhooks import dispatch_event
+        event = "story.rejected" if flagged else "story.published"
+        dispatch_event(db, event, {
+            "id": str(story.id),
+            "title": story.title,
+            "user_id": str(story.user_id) if story.user_id else None,
+            "status": story.status.value,
+        })
+
         # Invalidate any cached list pages that would still show the pending
         # state. Import here to avoid pulling Redis into moderation's import
         # graph at module load.

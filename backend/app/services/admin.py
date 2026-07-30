@@ -10,6 +10,7 @@ from app.models.creator_request import CreatorRequest, RequestStatus
 from app.schemas.admin import CreatorRequestCreate, CreatorRequestReview
 from app.models.user import User
 from app.models.audit_log import AuditLog
+from app.authz import Perm, has_perm
 
 def list_users(db: Session, limit: int = 50, offset: int = 0):
     # W5: bounded — unbounded .all() is a time bomb as user counts grow.
@@ -125,8 +126,9 @@ def list_audit_logs(db: Session, limit: int = 50, offset: int = 0):
     )
 
 def create_creator_request(db: Session, user: User, data: CreatorRequestCreate) -> CreatorRequest:
-    # Already creator or higher?
-    if user.role.name in ["creator", "moderator", "superadmin"]:
+    # Only plain users can request creator access — the CREATOR_REQUEST
+    # permission is granted to the "user" role only (creators+ already have it).
+    if not has_perm(user, Perm.CREATOR_REQUEST):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You are already a creator or have higher permissions."

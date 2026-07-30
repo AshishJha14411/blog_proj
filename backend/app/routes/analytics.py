@@ -16,11 +16,12 @@ from app.services.analytics import (
     get_moderation_logs,
     get_clicks_daily,
 )
-from app.dependencies import get_db, require_roles
+from app.dependencies import get_db
+from app.authz import Perm, require
 
 # Expose a dependency var so tests can override exactly this object,
 # consistent with moderation routes.
-moderator_or_superadmin = require_roles("moderator", "superadmin")
+moderator_or_superadmin = require(Perm.ANALYTICS_VIEW)
 
 router = APIRouter(
     prefix="/analytics",

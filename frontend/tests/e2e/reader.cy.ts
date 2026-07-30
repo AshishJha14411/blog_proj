@@ -31,7 +31,7 @@ describe('Full-Stack Reader E2E Journey', () => {
     // 1. Create the reader
     cy.request({
       method: 'POST',
-      url: 'http://localhost:8000/auth/signup', 
+      url: 'http://localhost:8000/api/v1/auth/signup', 
       body: { ...readerUser },
       failOnStatusCode: false, // <-- Don't fail immediately
     }).then((res) => {
@@ -42,7 +42,7 @@ describe('Full-Stack Reader E2E Journey', () => {
     // 2. Create the creator
     cy.request({
       method: 'POST',
-      url: 'http://localhost:8000/auth/signup', 
+      url: 'http://localhost:8000/api/v1/auth/signup', 
       body: { ...creatorUser }, 
       failOnStatusCode: false, // <-- Don't fail immediately
     }).then((res) => {
@@ -56,7 +56,7 @@ describe('Full-Stack Reader E2E Journey', () => {
     // 1. Log in as the READER via API
     cy.request({
       method: 'POST',
-      url: 'http://localhost:8000/auth/login',
+      url: 'http://localhost:8000/api/v1/auth/login',
       body: {
         username: readerUser.username,
         password: readerUser.password,
@@ -79,7 +79,7 @@ describe('Full-Stack Reader E2E Journey', () => {
     // We temporarily log in as the CREATOR via API to create one
     cy.request({
       method: 'POST',
-      url: 'http://localhost:8000/auth/login',
+      url: 'http://localhost:8000/api/v1/auth/login',
       body: {
         username: creatorUser.username,
         password: creatorUser.password,
@@ -89,7 +89,7 @@ describe('Full-Stack Reader E2E Journey', () => {
       
       cy.request({
         method: 'POST',
-        url: 'http://localhost:8000/stories/',
+        url: 'http://localhost:8000/api/v1/stories/',
         headers: { Authorization: `Bearer ${token}` },
         body: {
           title: storyToCommentOn.title,

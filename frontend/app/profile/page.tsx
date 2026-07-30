@@ -29,7 +29,6 @@ export default function ProfilePage() {
 
     // When the component loads or the user object changes, sync the form data
     useEffect(() => {
-        console.log(user)
         if (user) {
             setFormData({
                 bio: user.bio || '',

@@ -15,7 +15,7 @@ describe('Full-Stack Auth E2E Journey', () => {
     cy.request({
       method: 'POST',
       // We hit the backend directly, not the frontend
-      url: 'http://localhost:8000/auth/signup', 
+      url: 'http://localhost:8000/api/v1/auth/signup', 
       body: {
         username: testUser.username,
         email: testUser.email,
@@ -58,11 +58,19 @@ it('shows Login/Signup in the Navbar when logged out', () => {
     cy.get('input[id="password"]').type(testUser.password);
     cy.get('button[type="submit"]').contains('Sign in').click();
 
-    // ASSERT 1: We should be redirected to the homepage
-    cy.url().should('eq', 'http://localhost:3000/');
+    // ASSERT 1: wait for the *state change*, not the URL.
+    //
+    // Login does: loginUser -> getMe -> store.login -> router.push('/'). The
+    // getMe call intentionally 401s first (the token isn't in the store yet) and
+    // recovers via the refresh interceptor, and then router.push('/') has to
+    // fetch the RSC payload for "/" — which in `next dev` includes an on-demand
+    // compile. Asserting url() first raced all of that against Cypress's default
+    // 4s timeout and flaked. The profile link only renders once the store is
+    // authenticated, so it is the real success signal; give it room.
+    cy.get('a[href="/profile"]', { timeout: 20000 }).should('be.visible');
 
-    // ASSERT 2: The Navbar should now show the logged-in state
-    cy.get('a[href="/profile"]').should('be.visible');
+    // ASSERT 2: now that we know auth landed, the redirect has settled too.
+    cy.url({ timeout: 20000 }).should('eq', 'http://localhost:3000/');
     cy.get('button').contains('Log Out').should('be.visible');
     cy.get('a[href="/login"]').should('not.exist');
   });

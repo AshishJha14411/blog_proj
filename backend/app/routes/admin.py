@@ -21,7 +21,8 @@ from app.services.admin import (
     review_creator_request as svc_review_creator_request,
 )
 from app.models.user import User
-from app.dependencies import get_db, require_roles, get_current_user
+from app.dependencies import get_db, get_current_user
+from app.authz import Perm, require, has_perm
 
 # ---- Single router, keep protection here (superadmin-only for admin suite) ----
 router = APIRouter(
@@ -31,7 +32,7 @@ router = APIRouter(
 
 # ---- Helper dependency for actions that allow moderator OR superadmin ----
 def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role and current_user.role.name in ("moderator", "superadmin"):
+    if has_perm(current_user, Perm.MOD_QUEUE):
         return current_user
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions.")
 
@@ -41,7 +42,7 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)) -> Us
     "/users/",
     response_model=List[AdminUserOut],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_roles("superadmin"))],
+    dependencies=[Depends(require(Perm.ADMIN_USERS))],
 )
 def admin_list_users(
     limit: int = Query(50, gt=0, le=200),
@@ -54,7 +55,7 @@ def admin_list_users(
     "/users/{user_id}",
     response_model=AdminUserOut,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_roles("superadmin"))],
+    dependencies=[Depends(require(Perm.ADMIN_USERS))],
 )
 def admin_update_user(
     user_id: UUID,
@@ -75,7 +76,7 @@ def admin_update_user(
 @router.delete(
     "/users/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_roles("superadmin"))],
+    dependencies=[Depends(require(Perm.ADMIN_USERS))],
 )
 def admin_delete_user(
     user_id: UUID,
@@ -89,7 +90,7 @@ def admin_delete_user(
     "/audit-logs/",
     response_model=AuditLogList,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_roles("superadmin"))],
+    dependencies=[Depends(require(Perm.ADMIN_USERS))],
 )
 def admin_audit_logs(
     limit: int = Query(50, gt=0, le=200),

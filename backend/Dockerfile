@@ -48,6 +48,22 @@ COPY ./entrypoint.sh /app/entrypoint.sh
 # FIX 2: Run dos2unix on the script to remove invisible Windows characters
 RUN dos2unix /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
+# --- Run as a non-root user (least privilege) ---
+# A compromised web process shouldn't be root inside the container. Create an
+# unprivileged user, hand it ownership of /app, and drop to it before running.
+# The entrypoint only needs DB access + exec (no root-only writes, and
+# PYTHONDONTWRITEBYTECODE avoids .pyc writes), so nothing here needs root.
+RUN groupadd --system --gid 1001 appuser \
+    && useradd --system --uid 1001 --gid appuser --home-dir /app appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+# Container-level liveness probe. Cloud Run uses its own probes and the Celery
+# worker (same image, no HTTP port) disables this via compose, but locally this
+# makes `docker ps` report real health for the API service. Uses stdlib only.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+    CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz', timeout=3).status==200 else 1)"]
+
 # Set the entrypoint
 ENTRYPOINT ["/bin/sh","/app/entrypoint.sh"]
 

@@ -15,8 +15,18 @@ services:
       # This is the "key" to the database.
       # It tells FastAPI to connect to the 'db' service on port 5432.
       DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
+      # CRITICAL: alembic (seed.py / env.py) prefers MIGRATION_DATABASE_URL.
+      # backend/.env sets that to PRODUCTION Neon, so without this override a
+      # local `docker compose up` would run migrations against prod. Pin it to
+      # the local db so local migrations stay local.
+      MIGRATION_DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
       # Redis (rate limiter + cache). Compose service name is `redis`.
       REDIS_URL: "redis://redis:6379/0"
+      # Workerless mode (see docs/adr/001). Defaults to false so local dev keeps
+      # using the real worker; set it to reproduce PROD, where no worker exists:
+      #   CELERY_TASK_ALWAYS_EAGER=true docker compose up -d backend
+      #   docker compose stop worker
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-false}
 
       # We load all other secrets from your .env file
       SECRET_KEY: ${SECRET_KEY}
@@ -89,6 +99,8 @@ services:
       --prefetch-multiplier=1
     environment:
       DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
+      # Keep migrations local even if SKIP_MIGRATIONS is ever flipped off.
+      MIGRATION_DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
       REDIS_URL: "redis://redis:6379/0"
       SECRET_KEY: ${SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
@@ -102,6 +114,11 @@ services:
       SKIP_MIGRATIONS: "true"
     env_file:
       - backend/.env
+    # The image defines a HEALTHCHECK that curls /healthz on :8080 — right for
+    # the API, wrong for the worker (Celery binds no HTTP port). Disable it here
+    # so the worker never shows unhealthy for lacking an endpoint it shouldn't have.
+    healthcheck:
+      disable: true
     depends_on:
       backend:
         condition: service_healthy

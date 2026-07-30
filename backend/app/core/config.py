@@ -40,6 +40,31 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     ENVIRONMENT: str = "development"    # host sets ENVIRONMENT=production in prod
+
+    # ----- Celery execution mode (COST DECISION — see docs/adr/001) -----
+    # /** WHY: a Celery worker is a *polling* consumer — it has no HTTP surface,
+    #     so Cloud Run can never scale it to zero (nothing would wake it to poll
+    #     the broker). Running it needs `--min-instances=1 --no-cpu-throttling`,
+    #     i.e. a CPU billed 24/7 — the single largest line item in this stack,
+    #     for a personal project that is idle most of the day. **/
+    # /** WHAT: when true, `.delay()` executes the task INLINE in the calling
+    #     process instead of enqueueing it. No worker, no broker traffic, $0.
+    #     Every enqueue site already commits BEFORE calling `.delay()`, so the
+    #     task still sees a committed row — inline execution is safe here. **/
+    # /** TRADE-OFF (accepted deliberately): the task's latency moves into the
+    #     request (story publish now waits on the LLM moderation call), and
+    #     Celery's retry/backoff is lost — eager mode does not retry. Correct
+    #     answer at scale is push delivery (Cloud Tasks -> HTTP endpoint), which
+    #     keeps scale-to-zero AND async execution. Documented, not forgotten. **/
+    CELERY_TASK_ALWAYS_EAGER: bool = False
+
+    # ----- Observability -----
+    # JSON logs + Sentry only make sense in prod; dev stays human-readable and
+    # Sentry-free. SENTRY_DSN unset => Sentry is simply not initialized.
+    LOG_LEVEL: str = "INFO"
+    SENTRY_DSN: str | None = None
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+
     model_config = SettingsConfigDict(
         env_file='.env',
         env_file_encoding='utf-8',

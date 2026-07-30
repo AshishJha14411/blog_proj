@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Tuple
 
-from sqlalchemy import and_, cast, func, Date
+from sqlalchemy import and_, cast, func, Date, text
 from sqlalchemy.orm import Session
 
 from app.models.analytics import AnalyticsCache
@@ -16,63 +16,58 @@ from app.models.user import User
 from app.schemas.analytics import DailyMetric
 
 
-def _date_range_inclusive(start: date, end: date) -> List[date]:
-    days = []
-    cur = start
-    while cur <= end:
-        days.append(cur)
-        cur = cur + timedelta(days=1)
-    return days
+def _daily_series(db: Session, *, table: str, date_col: str, days: int) -> List[Dict]:
+    """Dense daily counts + cumulative running total, in a SINGLE SQL query.
 
+    Old approach: a sparse GROUP BY, then a Python loop to fill the zero-days.
+    This does it all in Postgres:
+    - `generate_series(...)` emits every day in the window (no gaps in Python).
+    - a LEFT JOIN pulls the per-day counts (0 where there's no data).
+    - `SUM(count) OVER (ORDER BY day)` is a window function giving the running
+      cumulative total — the growth curve — for free.
 
-def _fill_daily_counts(rows: List[Tuple[date, int]], start: date, end: date) -> List[Dict]:
+    Bonus correctness: `current_date` is the DB's date, killing the old
+    server-local `date.today()` timezone bug (FINDINGS G13). `table`/`date_col`
+    are internal literals (never user input), so the f-string is injection-safe.
     """
-    rows: list of (day, count) already aggregated by DATE.
-    Returns a dense series [ {"day": d, "count": n}, ... ] for all days in [start, end].
-    """
-    by_day = {d: c for d, c in rows}
-    out = []
-    for d in _date_range_inclusive(start, end):
-        out.append({"day": d, "count": int(by_day.get(d, 0))})
-    return out
+    sql = text(
+        f"""
+        SELECT
+            day,
+            count,
+            SUM(count) OVER (ORDER BY day) AS running_total
+        FROM (
+            SELECT
+                gs::date AS day,
+                COALESCE(agg.cnt, 0) AS count
+            FROM generate_series(
+                current_date - make_interval(days => :days_back),
+                current_date,
+                interval '1 day'
+            ) AS gs
+            LEFT JOIN (
+                SELECT {date_col}::date AS d, count(*) AS cnt
+                FROM {table}
+                WHERE {date_col} >= current_date - make_interval(days => :days_back)
+                GROUP BY 1
+            ) AS agg ON agg.d = gs::date
+        ) dense
+        ORDER BY day
+        """
+    )
+    rows = db.execute(sql, {"days_back": days - 1}).mappings().all()
+    return [
+        {"day": r["day"], "count": int(r["count"]), "running_total": int(r["running_total"])}
+        for r in rows
+    ]
 
 
 def get_posts_daily(db: Session, days: int = 30) -> List[Dict]:
-    end = date.today()
-    start = end - timedelta(days=days - 1)
-
-    # group by DATE(created_at)
-    rows = (
-        db.query(
-            cast(Story.created_at, Date).label("day"),
-            func.count(Story.id).label("count"),
-        )
-        .filter(cast(Story.created_at, Date) >= start)
-        .group_by("day")
-        .order_by("day")
-        .all()
-    )
-    # rows: List[Row(day=date, count=int)] -> List[Tuple[date, int]]
-    tuples = [(r.day, r.count) for r in rows]
-    return _fill_daily_counts(tuples, start, end)
+    return _daily_series(db, table="stories", date_col="created_at", days=days)
 
 
 def get_users_daily(db: Session, days: int = 30) -> List[Dict]:
-    end = date.today()
-    start = end - timedelta(days=days - 1)
-
-    rows = (
-        db.query(
-            cast(User.created_at, Date).label("day"),
-            func.count(User.id).label("count"),
-        )
-        .filter(cast(User.created_at, Date) >= start)
-        .group_by("day")
-        .order_by("day")
-        .all()
-    )
-    tuples = [(r.day, r.count) for r in rows]
-    return _fill_daily_counts(tuples, start, end)
+    return _daily_series(db, table="users", date_col="created_at", days=days)
 
 
 def get_flags_breakdown(db: Session) -> Dict[str, int]:
@@ -101,21 +96,7 @@ def get_moderation_logs(db: Session, limit: int = 50, offset: int = 0) -> List[A
 
 
 def get_clicks_daily(db: Session, days: int = 30) -> List[Dict]:
-    end = date.today()
-    start = end - timedelta(days=days - 1)
-
-    rows = (
-        db.query(
-            cast(Click.clicked_at, Date).label("day"),
-            func.count(Click.id).label("count"),
-        )
-        .filter(cast(Click.clicked_at, Date) >= start)
-        .group_by("day")
-        .order_by("day")
-        .all()
-    )
-    tuples = [(r.day, r.count) for r in rows]
-    return _fill_daily_counts(tuples, start, end)
+    return _daily_series(db, table="clicks", date_col="clicked_at", days=days)
 
 
 def get_analytics_series(db: Session, start: date, end: date) -> List[DailyMetric]:

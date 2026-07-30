@@ -26,8 +26,7 @@ export default function AddCommentForm({ postId, onCommentAdded }: AddCommentFor
       // We need to create this service function
       const { createComment } = await import('@/services/commentService');
       const newComments = await createComment(postId, content);
-      console.log("On Adding comment check:", newComments)
-      onCommentAdded(newComments); 
+      onCommentAdded(newComments);
       setContent(''); 
     } catch {
       setError('Failed to post comment. Please try again.');

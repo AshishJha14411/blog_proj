@@ -7,7 +7,8 @@ from uuid import UUID as UUID_t
 import uuid
 from datetime import datetime
 
-from app.dependencies import get_db, require_roles, get_current_user
+from app.dependencies import get_db, get_current_user
+from app.authz import Perm, require
 from app.models.user import User
 from app.models.stories import Story, StoryStatus
 from app.models.comment import Comment
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/moderation", tags=["Moderation"])
 user_action_router = APIRouter(tags=["User Actions"])
 
 # expose for tests to override
-moderator_or_superadmin = require_roles("moderator", "superadmin")
+moderator_or_superadmin = require(Perm.MOD_QUEUE)
 
 
 # ---------- helpers ----------

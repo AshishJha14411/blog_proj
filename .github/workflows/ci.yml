@@ -113,6 +113,43 @@ jobs:
 
 
   # ------------------------------------------------------------------
+  # JOB 1b: IMAGE VULNERABILITY SCAN (Trivy)
+  # Builds the actual deployable backend image and scans it for known
+  # CVEs in the OS packages and Python deps — supply-chain hygiene on the
+  # exact artifact that ships to Cloud Run, not just the source tree.
+  #
+  # Deliberately REPORT-ONLY: `--exit-code 0` prints findings without
+  # failing, and `continue-on-error` keeps it off the critical path. Flip
+  # `--exit-code 0` to `--exit-code 1` (and drop continue-on-error) to turn
+  # this into an enforcing gate once the base image is on a clean bill.
+  # ------------------------------------------------------------------
+  image-scan:
+    name: "Image Vulnerability Scan (Trivy)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Build backend image
+        run: docker build -t quill-backend:ci ./backend
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
+
+      - name: Scan image (HIGH/CRITICAL, report-only)
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --no-progress \
+            --exit-code 0 \
+            quill-backend:ci
+
+
+  # ------------------------------------------------------------------
   # JOB 2: FRONTEND TESTS (Unit & Component)
   # ------------------------------------------------------------------
   frontend-tests:

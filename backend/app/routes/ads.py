@@ -3,16 +3,20 @@ from sqlalchemy.orm import Session
 from typing import List
 import uuid
 
-from app.dependencies import get_db, require_roles
+from app.dependencies import get_db
+from app.authz import Perm, require
 from app.schemas.ads import AdCreate, AdUpdate, AdOut, AdList
 from app.services import ads
+
+# Shared gate instance so tests can override this exact object.
+can_manage_ads = require(Perm.ADMIN_ADS)
 
 # --- 1. Router for ADMIN-ONLY actions ---
 # This router is protected and handles creating, updating, and deleting ads.
 router = APIRouter(
     prefix="/admin/ads",
     tags=["Admin - Ads"],
-    dependencies=[Depends(require_roles("superadmin"))]
+    dependencies=[Depends(can_manage_ads)]
 )
 
 # --- 2. Router for PUBLIC-FACING actions ---

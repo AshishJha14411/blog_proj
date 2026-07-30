@@ -3,8 +3,12 @@ from app.utils.time import utcnow
 from datetime import datetime
 from typing import List, Optional, Tuple
 import uuid
+import base64
 from fastapi import HTTPException, status, Request
+from sqlalchemy import text, func, or_, and_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 # Import all necessary models
 from app.models.like import Like
 from app.models.bookmarks import Bookmark
@@ -21,6 +25,7 @@ from app.llm.adapter import LLMAdapter
 from app.core.config import settings
 from app.services.system import get_automod_user
 from app.tasks.moderation import moderate_story_task
+from app.authz import Perm, has_perm, authorize_owned
 # Initialize the LLM Adapter once
 _llm = LLMAdapter()
 
@@ -52,8 +57,7 @@ def _mask_deleted_authors(items: List[Story]) -> None:
 #     final state without special-casing. **/
 def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
     tag_objs = []
-    allowed_roles = {"creator", "moderator", "superadmin"}
-    if current_user.role.name not in allowed_roles:
+    if not has_perm(current_user, Perm.STORY_CREATE):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to create a story."
@@ -101,9 +105,8 @@ def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
 
 # --- STORY CREATION (AI) ---
 def generate_story(db: Session, data: StoryGenerateIn, current_user: User) -> Story:
-    
-    allowed_roles = {"creator", "moderator", "superadmin"}
-    if current_user.role.name not in allowed_roles:
+
+    if not has_perm(current_user, Perm.STORY_CREATE):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to create a story."
@@ -117,7 +120,10 @@ def generate_story(db: Session, data: StoryGenerateIn, current_user: User) -> St
     )
     # The LLM call itself stays inline — it IS the request's purpose and can't
     # be deferred. Only moderation is deferred, to match create_story's flow.
-    story_text, msg_id = _generate_story_text(prompt=full_prompt, model=data.model_name, temperature=data.temperature)
+    story_text, msg_id = _generate_story_text(
+        prompt=full_prompt, model=data.model_name, temperature=data.temperature,
+        length_label=data.length_label,
+    )
     return finalize_generated_story(db, data, current_user, story_text=story_text, msg_id=msg_id)
 
 
@@ -174,13 +180,27 @@ def finalize_generated_story(
 
     return new_story
 
-# --- READING STORIES ---
-def _populate_interaction_flags(
-    db: Session,
+# --- READING STORIES (ASYNC) ---
+# WHY the read layer is async but the write layer (above/below) is sync — a
+# deliberate split, not a half-finished migration:
+#   * Reads are the high-fan-out, IO-bound path (list/detail/search dominate
+#     traffic). `async def` lets one worker serve many concurrent reads instead
+#     of parking a thread per request — the real throughput win. They run on
+#     `AsyncSessionLocal` via `get_async_db` (one-txn-per-request UoW).
+#   * Writes are low-QPS AND enqueue Celery work that MUST fire only after the
+#     row commits (create -> moderate_story_task; update -> re-moderation). The
+#     async UoW commits *after* the service returns, so an async write would
+#     race the worker against an uncommitted row. Keeping writes on the sync
+#     session preserves the correct commit-then-enqueue ordering with no
+#     after-commit-hook machinery. Sync and async sessions target the same DB
+#     over separate engines and coexist cleanly (FastAPI runs sync routes in a
+#     threadpool, async routes on the loop).
+async def _populate_interaction_flags(
+    db: AsyncSession,
     items: List[Story],
     current_user: Optional[User],
 ) -> None:
-    """Batch-load like/bookmark flags for a page of stories: 2 queries, not 2N."""
+    """ASYNC. Batch-load like/bookmark flags for a page: 2 queries, not 2N."""
     if not current_user or not items:
         for s in items:
             s.is_liked_by_user = False
@@ -188,85 +208,218 @@ def _populate_interaction_flags(
         return
 
     story_ids = [s.id for s in items]
-    liked = {
-        sid for (sid,) in db.query(Like.story_id).filter(
+    liked_res = await db.execute(
+        select(Like.story_id).where(
             Like.user_id == current_user.id,
             Like.story_id.in_(story_ids),
         )
-    }
-    marked = {
-        sid for (sid,) in db.query(Bookmark.story_id).filter(
+    )
+    liked = {row[0] for row in liked_res.all()}
+    marked_res = await db.execute(
+        select(Bookmark.story_id).where(
             Bookmark.user_id == current_user.id,
             Bookmark.story_id.in_(story_ids),
         )
-    }
+    )
+    marked = {row[0] for row in marked_res.all()}
     for s in items:
         s.is_liked_by_user = s.id in liked
         s.is_bookmarked_by_user = s.id in marked
 
 
-def get_all_stories(db: Session, limit: int, offset: int, tag: Optional[str], author_id: Optional[uuid.UUID], current_user: Optional[User]) -> Tuple[int, List[Story]]:
-    # W7: eager-load user + tags so `StoryOut.model_validate(item)` doesn't lazy-load per row.
-    query = (
-        db.query(Story)
-        .options(joinedload(Story.user), selectinload(Story.tags))
-        .filter(Story.deleted_at.is_(None))
-    )
-    is_mod = bool(current_user and current_user.role.name in ("moderator", "superadmin"))
-    if not is_mod:
-        # /** WHY: `pending` and `rejected` rows must never show up in the
-        #     public list, even before the moderation task finishes running.
-        #     is_published=True is the strongest single filter. **/
-        query = query.filter(Story.is_published == True)
-    if author_id:
-        query = query.filter(Story.user_id == author_id)
-    if tag:
-        query = query.join(Story.tags).filter(Tag.name == tag)
+async def search_stories(
+    db: AsyncSession, query: str, limit: int, offset: int, current_user: Optional[User]
+) -> Tuple[int, List[Story]]:
+    """ASYNC. Full-text search over published stories, ranked by relevance.
 
-    total = query.count()
-    items = query.order_by(Story.created_at.desc()).offset(offset).limit(limit).all()
-    _populate_interaction_flags(db, items, current_user)
+    Uses the `search_vector` GENERATED tsvector column (title weighted above
+    body) with `plainto_tsquery` for the match and `ts_rank` for ordering —
+    index-backed by the GIN index, so this scales unlike a LIKE scan. The `:q`
+    bind is passed to `execute()` as a params dict (2.0 style).
+    """
+    # Strip NUL bytes before they reach Postgres: a text column / tsquery can't
+    # contain 0x00, and psycopg raises a ValueError (→ 500) if it does. A search
+    # box should never 500 on hostile input — drop the bytes and search the rest.
+    # (Found by the hypothesis fuzz test, tests/integration/test_fuzz_endpoints.)
+    q = (query or "").replace("\x00", "").strip()
+    if not q:
+        return 0, []
+
+    # `search_vector @@ plainto_tsquery(...)` is the FTS match. Referenced via
+    # text() so we don't have to map the generated column onto the ORM.
+    match = text("search_vector @@ plainto_tsquery('english', :q)")
+    rank = text("ts_rank(search_vector, plainto_tsquery('english', :q)) DESC")
+
+    conditions = (Story.deleted_at.is_(None), Story.is_published.is_(True), match)
+    total = (
+        await db.execute(select(func.count()).select_from(Story).where(*conditions), {"q": q})
+    ).scalar() or 0
+    items = (
+        await db.execute(
+            select(Story)
+            .where(*conditions)
+            .options(joinedload(Story.user), selectinload(Story.tags))
+            .order_by(rank)
+            .offset(offset)
+            .limit(limit),
+            {"q": q},
+        )
+    ).scalars().unique().all()
+    items = list(items)
+    await _populate_interaction_flags(db, items, current_user)
     _mask_deleted_authors(items)
     return total, items
 
-def get_user_stories(db: Session, user: User, limit: int, offset: int) -> Tuple[int, List[Story]]:
-    query = (
-        db.query(Story)
-        .options(joinedload(Story.user), selectinload(Story.tags))
-        .filter(Story.user_id == user.id, Story.deleted_at.is_(None))
-    )
-    total = query.count()
-    items = query.order_by(Story.created_at.desc()).offset(offset).limit(limit).all()
-    _populate_interaction_flags(db, items, user)
+
+async def get_all_stories(db: AsyncSession, limit: int, offset: int, tag: Optional[str], author_id: Optional[uuid.UUID], current_user: Optional[User]) -> Tuple[int, List[Story]]:
+    """ASYNC. W7: eager-load user + tags so `StoryOut.model_validate(item)`
+    doesn't lazy-load per row (async has no implicit lazy IO)."""
+    conditions = [Story.deleted_at.is_(None)]
+    if not has_perm(current_user, Perm.STORY_MODERATE):
+        # /** WHY: `pending` and `rejected` rows must never show up in the
+        #     public list, even before the moderation task finishes running.
+        #     is_published=True is the strongest single filter. **/
+        conditions.append(Story.is_published.is_(True))
+    if author_id:
+        conditions.append(Story.user_id == author_id)
+
+    def _with_tag(stmt):
+        # Tag filter needs a join; applied to both the count and the page.
+        return stmt.join(Story.tags).where(Tag.name == tag) if tag else stmt
+
+    total = (
+        await db.execute(_with_tag(select(func.count(Story.id)).where(*conditions)))
+    ).scalar() or 0
+    items = (
+        await db.execute(
+            _with_tag(
+                select(Story)
+                .where(*conditions)
+                .options(joinedload(Story.user), selectinload(Story.tags))
+            )
+            .order_by(Story.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().unique().all()
+    items = list(items)
+    await _populate_interaction_flags(db, items, current_user)
+    _mask_deleted_authors(items)
     return total, items
 
-def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[User], request: Request) -> Story:
-    story = (
-        db.query(Story)
+
+def _encode_cursor(created_at: datetime, story_id: uuid.UUID) -> str:
+    return base64.urlsafe_b64encode(f"{created_at.isoformat()}|{story_id}".encode()).decode()
+
+
+def _decode_cursor(cursor: str) -> Tuple[datetime, uuid.UUID]:
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode()).decode()
+        ts_str, id_str = raw.split("|", 1)
+        return datetime.fromisoformat(ts_str), uuid.UUID(id_str)
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid cursor.")
+
+
+async def get_stories_keyset(
+    db: AsyncSession, limit: int, cursor: Optional[str], tag: Optional[str],
+    author_id: Optional[uuid.UUID], current_user: Optional[User],
+) -> Tuple[List[Story], Optional[str]]:
+    """ASYNC. Keyset (cursor) pagination — O(1) per page regardless of depth.
+
+    OFFSET makes Postgres scan+discard `offset` rows, so page 10,000 is slow.
+    Keyset instead seeks past the last row seen using the ordered key
+    `(created_at, id)`: `WHERE (created_at, id) < (cursor)`. The compound key
+    (id as tiebreaker) makes the order total, so no row is skipped or repeated
+    even when many stories share a created_at.
+    """
+    conditions = [Story.deleted_at.is_(None)]
+    if not has_perm(current_user, Perm.STORY_MODERATE):
+        conditions.append(Story.is_published.is_(True))
+    if author_id:
+        conditions.append(Story.user_id == author_id)
+    if cursor:
+        c_ts, c_id = _decode_cursor(cursor)
+        conditions.append(
+            or_(
+                Story.created_at < c_ts,
+                and_(Story.created_at == c_ts, Story.id < c_id),
+            )
+        )
+
+    stmt = (
+        select(Story)
+        .where(*conditions)
         .options(joinedload(Story.user), selectinload(Story.tags))
-        .filter(Story.id == story_id, Story.deleted_at.is_(None))
-        .first()
     )
+    if tag:
+        stmt = stmt.join(Story.tags).where(Tag.name == tag)
+    # Fetch one extra to know whether a next page exists.
+    stmt = stmt.order_by(Story.created_at.desc(), Story.id.desc()).limit(limit + 1)
+
+    rows = list((await db.execute(stmt)).scalars().unique().all())
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    next_cursor = _encode_cursor(items[-1].created_at, items[-1].id) if (has_more and items) else None
+
+    await _populate_interaction_flags(db, items, current_user)
+    _mask_deleted_authors(items)
+    return items, next_cursor
+
+
+async def get_user_stories(db: AsyncSession, user: User, limit: int, offset: int) -> Tuple[int, List[Story]]:
+    """ASYNC. All stories authored by `user` (incl. their unpublished drafts)."""
+    conditions = (Story.user_id == user.id, Story.deleted_at.is_(None))
+    total = (
+        await db.execute(select(func.count(Story.id)).where(*conditions))
+    ).scalar() or 0
+    items = list((
+        await db.execute(
+            select(Story)
+            .where(*conditions)
+            .options(joinedload(Story.user), selectinload(Story.tags))
+            .order_by(Story.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().unique().all())
+    await _populate_interaction_flags(db, items, user)
+    return total, items
+
+async def get_story_details(db: AsyncSession, story_id: uuid.UUID, current_user: Optional[User], request: Request) -> StoryOut:
+    """ASYNC. Async SQLAlchemy 2.0 style: build a `select()`, `await db.execute`,
+    pull rows off the Result. Relationships are eager-loaded (joinedload/
+    selectinload) because async has no implicit lazy IO — touching an unloaded
+    relationship would raise. No commit here: get_async_db owns the transaction."""
+    result = await db.execute(
+        select(Story)
+        .options(joinedload(Story.user), selectinload(Story.tags))
+        .where(Story.id == story_id, Story.deleted_at.is_(None))
+    )
+    story = result.scalars().first()
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
 
-    if not story.is_published and not (current_user and (story.user_id == current_user.id or current_user.role.name in ("moderator", "superadmin"))):
+    if not story.is_published and not (
+        current_user and (story.user_id == current_user.id or has_perm(current_user, Perm.STORY_MODERATE))
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
 
-    # W7: like/bookmark flags — run each query once, not twice.
+    # Like/bookmark flags — one query each.
     if current_user:
-        story.is_liked_by_user = db.query(Like).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
-        story.is_bookmarked_by_user = db.query(Bookmark).filter_by(user_id=current_user.id, story_id=story.id).first() is not None
+        liked = await db.execute(select(Like.id).where(Like.user_id == current_user.id, Like.story_id == story.id))
+        story.is_liked_by_user = liked.first() is not None
+        marked = await db.execute(select(Bookmark.id).where(Bookmark.user_id == current_user.id, Bookmark.story_id == story.id))
+        story.is_bookmarked_by_user = marked.first() is not None
     else:
         story.is_liked_by_user = False
         story.is_bookmarked_by_user = False
 
-    # Log the view
+    # Log the view (staged; committed by the request's unit-of-work seam).
     db.add(ViewHistory(
         story_id=story.id, user_id=current_user.id if current_user else None,
         ip_address=request.client.host, user_agent=request.headers.get("user-agent")
     ))
-    db.commit()
 
     return StoryOut(
         id=str(story.id),
@@ -279,6 +432,11 @@ def get_story_details(db: Session, story_id: uuid.UUID, current_user: Optional[U
         cover_image_url=story.cover_image_url,
         is_published=story.is_published,
         source=story.source,
+        status=story.status,
+        genre=story.genre,
+        tone=story.tone,
+        length_label=story.length_label,
+        summary=story.summary,
         tags=[TagSummary(id=str(tag.id), name=tag.name) for tag in story.tags],
         # Explicitly build the nested UserSummary, converting its ID.
         is_liked_by_user=bool(getattr(story, "is_liked_by_user", False)),
@@ -317,7 +475,16 @@ def update_story(db: Session, story_id: uuid.UUID, data: StoryUpdate, current_us
 
 
     story.updated_at = utcnow()
-    db.commit()
+    try:
+        db.commit()
+    except StaleDataError:
+        # Optimistic-lock miss: another write bumped row_version between our
+        # read and commit. Tell the client to refetch and retry, don't clobber.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This story was modified by someone else. Refresh and try again.",
+        )
     db.refresh(story)
     return story
 
@@ -332,14 +499,30 @@ def delete_story(db: Session, story_id: uuid.UUID, current_user: User) -> None:
     return {"message": "Story deleted successfully"}
 
 # --- AI-SPECIFIC MODIFICATIONS ---
-def regenerate_with_feedback(db: Session, story_id: uuid.UUID, feedback: str, current_user: User) -> Story:
+def regenerate_with_feedback(
+    db: Session, story_id: uuid.UUID, feedback: str, current_user: User,
+    length_label: str | None = None,
+) -> Story:
     story = db.get(Story, story_id)
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
     _ensure_authorization(story, current_user)
 
-    regen_prompt = _build_regen_prompt(base_prompt=story.prompt or "", feedback=feedback)
-    new_text, msg_id = _generate_story_text(prompt=regen_prompt, model=story.model_name, temperature=story.temperature)
+    # Length precedence: an explicit override from the request wins (the preview
+    # page's length control), otherwise carry the story's original length so a
+    # revision can't silently turn a `short` piece into a long one.
+    _stored = story.length_label.value if getattr(story.length_label, "value", None) else story.length_label
+    _len = length_label or _stored
+    if length_label and _stored != length_label:
+        # Persist the change so subsequent revisions keep the NEW length.
+        story.length_label = LengthLabel(length_label)
+    regen_prompt = _build_regen_prompt(
+        base_prompt=story.prompt or "", feedback=feedback, length_label=_len,
+    )
+    new_text, msg_id = _generate_story_text(
+        prompt=regen_prompt, model=story.model_name, temperature=story.temperature,
+        length_label=_len,
+    )
     flagged, cats = moderate_content([story.title, new_text])
 
     story.version += 1
@@ -389,41 +572,94 @@ def unpublish_story(db: Session, story_id: uuid.UUID, current_user: User) -> Sto
 
 # --- HELPER FUNCTIONS ---
 def _ensure_authorization(post: Story, user: User):
-    if (post.user_id != user.id) and (user.role.name not in ("moderator", "superadmin")):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Not authorized for this post")
+    # Owner (with STORY_UPDATE_OWN) or a moderator (STORY_MODERATE) may act.
+    authorize_owned(user, post, own_perm=Perm.STORY_UPDATE_OWN, any_perm=Perm.STORY_MODERATE)
 
-def _generate_story_text(*, prompt: str, model: str, temperature: float) -> Tuple[str, str]:
+def _generate_story_text(
+    *, prompt: str, model: str, temperature: float, length_label: str | None = None
+) -> Tuple[str, str]:
+    # Cap output by the requested length. Falls back to the `short` budget rather
+    # than the global 8192 when no label is given (regeneration), so an unlabelled
+    # request can't quietly become a 6,000-word story.
     text, msg_id = _llm.generate(
         prompt,
         model=model,
         temperature=temperature,
-        max_tokens=settings.LLM_MAX_TOKENS,
+        max_tokens=length_max_tokens(length_label),
         timeout=settings.LLM_TIMEOUT,
     )
     if not text.strip():
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="LLM returned empty text")
     return text, msg_id
 
-# Concrete word-count targets per length label. Without these the model has
-# no idea what "long" means and defaults to a few lines. "at least" framing
-# (rather than a capped range) pushes it to actually fill the length out.
-_LENGTH_GUIDANCE = {
-    "flash": "a flash fiction piece of roughly 300–600 words",
-    "short": "a short story of at least 1,000 words (roughly 1,000–1,800)",
-    "medium": "a substantial story of at least 2,500 words (roughly 2,500–4,000)",
-    "long": "a long, fully-developed story of at least 4,000 words — do not cut it short; "
-            "expand scenes, dialogue, and description until it genuinely reads as a long piece",
+# Concrete word targets per length label.
+#
+# /** HISTORY: an earlier revision used open-ended "at least N words" framing to
+#     stop the model emitting a few lines. It over-corrected — every label,
+#     including `flash` and `short`, then had a floor and NO ceiling, so short
+#     requests produced 1,000-1,800+ word pieces. **/
+# /** WHY-THIS-WAY: a BOUNDED range (floor AND ceiling) plus a per-label token
+#     cap. The range stops the model under-writing; the ceiling and the cap stop
+#     it over-writing. `max_tokens` is the only *enforceable* limit — prompt text
+#     is a request the model may ignore, a token cap is arithmetic. **/
+# /** NOTE token budgets are deliberately ~2x the upper word bound (English prose
+#     runs ~1.4 tokens/word, plus HTML tag overhead). The cap is a backstop
+#     against runaway generation, NOT the target — too tight and stories get
+#     truncated mid-sentence, which is worse than being slightly long. **/
+# /** TUNING (2026-07-30): flash and short were doubled after the first pass read
+#     too short in practice. medium/long were nudged up so the bands stay
+#     strictly ordered — otherwise `short` (max 2,200) would have overlapped
+#     `medium` (min 1,800) and the labels would stop meaning anything. **/
+_LENGTH_SPEC: dict[str, dict] = {
+    "flash":  {"min": 600,  "max": 1200, "max_tokens": 2600, "expand": False},
+    "short":  {"min": 1400, "max": 2200, "max_tokens": 4600, "expand": False},
+    "medium": {"min": 2600, "max": 3600, "max_tokens": 7000, "expand": True},
+    "long":   {"min": 4000, "max": 5000, "max_tokens": 8192, "expand": True},
 }
 
 
+def _length_spec(length_label: str | None) -> dict:
+    return _LENGTH_SPEC.get((length_label or "short"), _LENGTH_SPEC["short"])
+
+
+def length_max_tokens(length_label: str | None) -> int:
+    """Hard output ceiling for a length label, never above the global setting.
+
+    Both the blocking and the STREAMING generate paths must use this — the
+    streaming route previously passed no max_tokens at all, so it silently used
+    the global 8192 (~6,000 words) regardless of the requested length.
+    """
+    return min(_length_spec(length_label)["max_tokens"], settings.LLM_MAX_TOKENS)
+
+
 def _build_story_prompt(user_prompt: str, genre: str|None, tone: str|None, length_label: str|None) -> str:
-    length_target = _LENGTH_GUIDANCE.get((length_label or "short"), _LENGTH_GUIDANCE["short"])
+    spec = _length_spec(length_label)
+    lo, hi = spec["min"], spec["max"]
+    length_target = f"a story of approximately {lo:,}–{hi:,} words"
+
+    # /** WHY conditional: "do not stop early / keep writing" was previously
+    #     applied to EVERY length, which actively fought the `flash` and `short`
+    #     targets — the model was being told to be brief and to keep going in the
+    #     same breath, and length instructions lose that fight. Only the long
+    #     labels get the expansion push now; the short ones get a stop cue. **/
+    if spec["expand"]:
+        pacing = (
+            f"Do not summarize or write an outline. Develop the middle properly —\n"
+            f"expand scenes, dialogue and description until the story genuinely\n"
+            f"reaches about {lo:,} words. Do not stop early."
+        )
+    else:
+        pacing = (
+            f"Be disciplined about length: this must land between {lo:,} and {hi:,}\n"
+            f"words. Stop as soon as the story is complete — do NOT pad it out,\n"
+            f"add extra scenes, or continue past roughly {hi:,} words."
+        )
+
     return f"""
 You are a skilled fiction writer. Write {length_target}, based on the instructions below.
 
-Write the FULL story — a beginning, a developed middle, and an ending. Do not
-summarize or write an outline. Do not stop early. Keep writing until the story
-is complete at the target length.
+Write a COMPLETE story — a beginning, a middle, and a real ending.
+{pacing}
 
 Output STRICTLY valid, minimal HTML. Use:
 - <h1> for the title (if you invent one)
@@ -442,13 +678,16 @@ Instructions/theme:
 {user_prompt}
 """.strip()
 
-def _build_regen_prompt(base_prompt: str, feedback: str) -> str:
+def _build_regen_prompt(base_prompt: str, feedback: str, length_label: str | None = None) -> str:
+    spec = _length_spec(length_label)
     return (
-        "Revise the following short story per the reader feedback.\n\n"
+        "Revise the following story per the reader feedback.\n\n"
         "Guidelines:\n"
         "- Preserve the core idea and characters.\n"
         "- Improve pacing and clarity.\n"
-        "- Keep the same length range.\n"
+        # State the range explicitly — "keep the same length range" told the model
+        # nothing, since it never sees the original length instruction.
+        f"- Keep the length between {spec['min']:,} and {spec['max']:,} words.\n"
         "- Avoid explicit sexual content, hate speech, and graphic violence.\n\n"
         f"Original instructions/context:\n{base_prompt}\n\n"
         f"Reader feedback to address:\n{feedback}\n\n"

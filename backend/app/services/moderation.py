@@ -12,8 +12,25 @@ from app.models.user import User
 from app.services.notifications import notify
 from better_profanity import profanity
 
-# Load default word list once at import time
-profanity.load_censor_words()
+# /** WHY a whitelist: better_profanity's default list flags "hell", "damn",
+#     "ass" and "bastard" — ordinary words in fiction. Any story of a few
+#     thousand words will almost certainly contain one, so LONG stories were
+#     being auto-REJECTED essentially every time (verified: all four flag True
+#     against the default list). On a creative-writing platform that is a
+#     product bug, not safety. **/
+# /** WHAT: mild/period/exclamatory words that legitimately appear in prose are
+#     whitelisted. Slurs and explicit sexual content stay flagged — the point is
+#     to stop false positives, not to disable moderation. **/
+# /** WHY-THIS-WAY: `load_censor_words(whitelist_words=...)` rebuilds the
+#     matcher once at import, so the hot path (`contains_profanity`) is
+#     unchanged and stays O(text). **/
+_FICTION_WHITELIST = [
+    "hell", "hells", "damn", "damned", "damnit", "dammit", "goddamn", "goddamned",
+    "ass", "arse", "asses", "bastard", "bastards", "bloody", "bugger", "crap",
+    "crappy", "piss", "pissed", "git", "sucks", "screw", "screwed", "screwing",
+    "god", "jesus", "christ", "hecks", "heck", "darn", "bollocks", "blimey",
+]
+profanity.load_censor_words(whitelist_words=_FICTION_WHITELIST)
 
 
 # --- Flagging Logic ---

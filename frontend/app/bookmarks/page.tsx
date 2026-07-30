@@ -1,51 +1,31 @@
-
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { getMyBookmarks } from '@/services/userService';
-import { Post } from '@/services/postService';
+import React, { useEffect } from 'react';
 import PostCard from '@/components/common/PostCard';
 import { useHydratedAuth } from '@/hooks/useHydratedAuth';
 import { useRouter } from 'next/navigation';
+import { useBookmarks } from '@/hooks/queries';
 
 export default function BookmarksPage() {
-  const [bookmarkedPosts, setBookmarkedPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const { isAuthenticated, isHydrated } = useHydratedAuth();
   const router = useRouter();
 
+  // Redirect unauthenticated users once hydration settles.
   useEffect(() => {
-    // If the user is not authenticated after hydration, redirect to login
-    if (isHydrated && !isAuthenticated) {
-      router.push('/login');
-      return;
-    }
+    if (isHydrated && !isAuthenticated) router.push('/login');
+  }, [isHydrated, isAuthenticated, router]);
 
-    if (!isAuthenticated) return;
+  // TanStack Query handles loading/error/caching/cancellation — no manual
+  // useEffect + `cancelled` flag. The query only runs once authenticated.
+  const { data: bookmarkedPosts = [], isLoading, isError } = useBookmarks(
+    isHydrated && isAuthenticated,
+  );
 
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await getMyBookmarks();
-        if (!cancelled) setBookmarkedPosts(response.items);
-      } catch {
-        if (!cancelled) setError('Failed to fetch your bookmarks.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    // Cleanup gates all setState calls so a rapid unmount / re-nav doesn't
-    // trigger React's "state update on unmounted component" warning.
-    return () => { cancelled = true; };
-  }, [isAuthenticated, isHydrated, router]);
-
-  if (!isHydrated || loading) {
+  if (!isHydrated || isLoading) {
     return <p className="p-8 text-center">Loading your bookmarks...</p>;
   }
-  
-  if (error) {
-    return <p className="p-8 text-center text-red-500">{error}</p>;
+  if (isError) {
+    return <p className="p-8 text-center text-red-500">Failed to fetch your bookmarks.</p>;
   }
 
   return (

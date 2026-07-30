@@ -7,6 +7,7 @@ from app.services.notifications import notify
 from app.models.comment import Comment
 from app.models.stories import Story
 from app.models.user import User
+from app.authz import Perm, authorize_owned
 
 def create_comment(db: Session, story_id: uuid.UUID, content: str, current_user: User) -> Comment:
     # --- FIX: Ensure we are querying with a UUID object ---
@@ -59,10 +60,9 @@ def delete_comment(db: Session, comment_id: uuid.UUID, current_user: User) -> No
     comment = db.query(Comment).filter(Comment.id == comment_id).first()
     if not comment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Comment not Found")
-    
-    # Proactive fix: typo `anme` -> `name`
-    if (comment.user_id != current_user.id and current_user.role.name not in ("moderator", "superadmin")):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
+
+    # Owner (COMMENT_DELETE_OWN) or a moderator (COMMENT_MODERATE) may delete.
+    authorize_owned(current_user, comment, own_perm=Perm.COMMENT_DELETE_OWN, any_perm=Perm.COMMENT_MODERATE)
+
     db.delete(comment)
     db.commit()

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, status, Query, Request
+from fastapi import APIRouter, Depends, status, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 import json
 import logging
@@ -9,15 +10,23 @@ import uuid
 logger = logging.getLogger("app")
 
 # Import all dependencies and the unified schemas/services
-from app.dependencies import get_db, require_roles, get_current_user_optional, get_current_user
+from app.dependencies import (
+    get_db, get_current_user_optional, get_current_user,
+    get_async_db, get_current_user_optional_async, get_current_user_async,
+)
+from app.authz import Perm, require
 from app.models.user import User
 from app.schemas.stories import StoryCreate, StoryUpdate, StoryOut, StoryList, UserSummary, TagSummary, StoryGenerateIn, StoryFeedbackIn
 from app.services import story
 from app.utils.rate_limiter import story_create_rate_limiter, llm_generate_rate_limiter
 from app.utils import cache as story_cache
+from app.utils.http_cache import conditional_model_response
 
 # --- UNIFIED ROUTER ---
 router = APIRouter(prefix="/stories", tags=["Stories"])
+
+# Shared gate instance so tests can override this exact object.
+can_create_story = require(Perm.STORY_CREATE)
 
 
 # --- HUMAN-WRITTEN STORY ENDPOINTS ---
@@ -31,7 +40,7 @@ router = APIRouter(prefix="/stories", tags=["Stories"])
 def create_new_story(
     data: StoryCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("creator", "moderator", "superadmin"))
+    current_user: User = Depends(can_create_story)
 ):
     """Creates a new story written by a user."""
     new_story = story.create_story(db, data, current_user)
@@ -65,21 +74,38 @@ def create_new_story(
     )
 
 @router.get("/", response_model=StoryList, status_code=status.HTTP_200_OK)
-def list_all_stories(
+async def list_all_stories(
+    request: Request,
+    http_response: Response,
     limit: int = Query(10, gt=0, le=100),
     offset: int = Query(0, ge=0),
+    cursor: Optional[str] = Query(None, description="Keyset cursor from a prior page's next_cursor"),
     tag: Optional[str] = Query(None),
     author_id: Optional[uuid.UUID] = Query(None), # Correctly a UUID
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_async)
 ):
-    """Lists all stories, with filters.
+    """Lists all stories, with filters. ASYNC.
+
+    Two pagination modes:
+    - Keyset (preferred): pass `?cursor=` (from a prior response's next_cursor)
+      for O(1)-per-page depth. Uncached (cursor pages are rarely re-requested).
+    - Offset (legacy): `?offset=`. Cached for anonymous callers.
 
     Cache: anon-only. Logged-in results include per-user like/bookmark flags
     so caching them would either leak state between users or require a
-    per-user key (unnecessary complexity for a rarely-repeated request).
-    Invalidation happens on any story create/update/delete/publish.
+    per-user key. Invalidation happens on any story create/update/delete/publish.
+    The cache layer is a sync Redis client; its calls are sub-millisecond local
+    ops, so the brief event-loop block is an accepted trade vs. a second async
+    Redis client.
     """
+    # Keyset path — cursor supplied OR offset==0 first page requested as keyset.
+    if cursor is not None:
+        items, next_cursor = await story.get_stories_keyset(db, limit, cursor, tag, author_id, current_user)
+        validated = [StoryOut.model_validate(i, from_attributes=True) for i in items]
+        result = StoryList(total=len(validated), limit=limit, offset=0, items=validated, next_cursor=next_cursor)
+        return conditional_model_response(request, http_response, result)
+
     can_cache = current_user is None
     viewer_key = "anon" if can_cache else f"u:{current_user.id}"
     key = story_cache.story_list_key(
@@ -93,26 +119,47 @@ def list_all_stories(
     if can_cache:
         cached = story_cache.get_cached(key)
         if cached is not None:
-            return StoryList.model_validate(cached)
+            return conditional_model_response(request, http_response, StoryList.model_validate(cached))
 
-    total, items = story.get_all_stories(db, limit, offset, tag, author_id, current_user)
+    total, items = await story.get_all_stories(db, limit, offset, tag, author_id, current_user)
     validated_items = [StoryOut.model_validate(item, from_attributes=True) for item in items]
-    response = StoryList(total=total, limit=limit, offset=offset, items=validated_items)
+    result = StoryList(total=total, limit=limit, offset=offset, items=validated_items)
 
     if can_cache:
-        story_cache.set_cached(key, response.model_dump(mode="json"), story_cache.STORY_LIST_TTL)
+        story_cache.set_cached(key, result.model_dump(mode="json"), story_cache.STORY_LIST_TTL)
 
-    return response
+    return conditional_model_response(request, http_response, result)
 
-@router.get("/me", response_model=StoryList, status_code=status.HTTP_200_OK)
-def list_my_stories(
+
+@router.get("/search", response_model=StoryList, status_code=status.HTTP_200_OK)
+async def search_stories(
+    request: Request,
+    response: Response,
+    q: str = Query(..., min_length=1, description="Full-text search query"),
     limit: int = Query(10, gt=0, le=100),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_async),
 ):
-    """Lists all stories created by the current authenticated user."""
-    total, items = story.get_user_stories(db, current_user, limit, offset)
+    """Full-text search over published stories, ranked by relevance. ASYNC.
+
+    Declared BEFORE `/{story_id}` so "search" isn't parsed as a UUID path.
+    """
+    total, items = await story.search_stories(db, q, limit, offset, current_user)
+    validated_items = [StoryOut.model_validate(item, from_attributes=True) for item in items]
+    result = StoryList(total=total, limit=limit, offset=offset, items=validated_items)
+    return conditional_model_response(request, response, result)
+
+
+@router.get("/me", response_model=StoryList, status_code=status.HTTP_200_OK)
+async def list_my_stories(
+    limit: int = Query(10, gt=0, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user_async)
+):
+    """Lists all stories created by the current authenticated user. ASYNC."""
+    total, items = await story.get_user_stories(db, current_user, limit, offset)
     validated_items = [
         StoryOut(
             id=str(story.id),
@@ -126,6 +173,10 @@ def list_my_stories(
             is_published=story.is_published,
             status=story.status,
             source=story.source,
+            genre=story.genre,
+            tone=story.tone,
+            length_label=story.length_label,
+            summary=story.summary,
             user=UserSummary(id=str(story.user.id), username=story.user.username),
             tags=[TagSummary(id=str(tag.id), name=tag.name) for tag in story.tags],
             is_liked_by_user=getattr(story, 'is_liked_by_user', False),
@@ -136,40 +187,18 @@ def list_my_stories(
 
 
 @router.get("/{story_id}", response_model=StoryOut, status_code=status.HTTP_200_OK)
-def read_story_details(
+async def read_story_details(
     story_id: uuid.UUID, # Correctly a UUID
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    response: Response,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_async)
 ):
-    """Gets the full details of a single story."""
-    story_object = story.get_story_details(db, story_id, current_user, request)
-    return StoryOut(
-        id=str(story_object.id),
-        title=story_object.title,
-        content=story_object.content,
-        user_id=str(story_object.user_id),
-        created_at=story_object.created_at,
-        updated_at=story_object.updated_at,
-        header=story_object.header,
-        cover_image_url=story_object.cover_image_url,
-        is_published=story_object.is_published,
-        status=story_object.status,
-        source=story_object.source,
-
-        # Explicitly build the nested UserSummary
-        user=UserSummary(
-            id=str(story_object.user.id),
-            username=story_object.user.username
-        ),
-        
-        # Explicitly build the list of TagSummary objects, converting their IDs
-        tags=[TagSummary(id=str(tag.id), name=tag.name) for tag in story_object.tags],
-
-        # Pass through the dynamically computed fields from the service
-        is_liked_by_user=story_object.is_liked_by_user,
-        is_bookmarked_by_user=story_object.is_bookmarked_by_user
-    )
+    """Gets the full details of a single story. ASYNC — the service builds and
+    returns the StoryOut directly (incl. deleted-author masking). Sends an ETag
+    so a repeat request revalidates into a cheap 304 (see http_cache)."""
+    result = await story.get_story_details(db, story_id, current_user, request)
+    return conditional_model_response(request, response, result)
 
 
 @router.patch("/{story_id}", response_model=StoryOut, status_code=status.HTTP_200_OK)
@@ -230,7 +259,7 @@ def delete_existing_story(
 def generate_ai_story(
     data: StoryGenerateIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("creator", "moderator", "superadmin")),
+    current_user: User = Depends(can_create_story),
 ):
     """Generates a new story using an AI model (non-streaming, one-shot)."""
     new_story = story.generate_story(db, data, current_user)
@@ -263,7 +292,7 @@ def _sse(payload: dict) -> str:
 def generate_ai_story_stream(
     data: StoryGenerateIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("creator", "moderator", "superadmin")),
+    current_user: User = Depends(can_create_story),
 ):
     """Streams AI story generation over Server-Sent Events.
 
@@ -282,8 +311,14 @@ def generate_ai_story_stream(
     def event_stream():
         collected: list[str] = []
         try:
+            # max_tokens MUST be passed here. Omitting it fell back to the global
+            # LLM_MAX_TOKENS (8192 ≈ 6,000 words), so every streamed story ignored
+            # the requested length — and this is the path the UI actually uses.
             for chunk in story._llm.generate_stream(
-                prompt, model=data.model_name, temperature=data.temperature
+                prompt,
+                model=data.model_name,
+                temperature=data.temperature,
+                max_tokens=story.length_max_tokens(data.length_label),
             ):
                 collected.append(chunk)
                 yield _sse({"type": "delta", "text": chunk})
@@ -334,7 +369,9 @@ def apply_feedback_to_story(
     current_user: User = Depends(get_current_user),
 ):
     """Regenerates an AI story with new feedback."""
-    regenerated_story = story.regenerate_with_feedback(db, story_id, data.feedback, current_user)
+    regenerated_story = story.regenerate_with_feedback(
+        db, story_id, data.feedback, current_user, length_label=data.length_label,
+    )
     return StoryOut(
         id=str(regenerated_story.id),
         user_id=str(regenerated_story.user_id),

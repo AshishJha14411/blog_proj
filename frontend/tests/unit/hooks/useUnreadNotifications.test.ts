@@ -3,6 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useUnreadNotifications } from '@/hooks/useUnreadNotifications';
 import { getUnreadCount } from '@/services/notificationService';
+import { useAuthStore } from '@/stores/authStore';
 
 vi.mock('@/services/notificationService', () => ({
   getUnreadCount: vi.fn(),
@@ -12,15 +13,29 @@ const mockGetUnreadCount = getUnreadCount as unknown as vi.Mock;
 const StrictWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   React.createElement(React.StrictMode, null, children);
 
+// The hook only polls once the user actually holds a token — calling an authed
+// endpoint while anonymous logged a 401 in the browser console on every page
+// load and right after login. These tests therefore have to establish a signed-in
+// store first; the gate itself is covered by its own test at the bottom.
+function signIn() {
+  useAuthStore.getState().login({
+    accessToken: 'test-access-token',
+    refreshToken: 'test-refresh-token',
+    user: { id: 'u1', username: 'tester', email: 'tester@example.com' },
+  });
+}
+
 describe('useUnreadNotifications', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.spyOn(global, 'setInterval');
     vi.spyOn(global, 'clearInterval');
     mockGetUnreadCount.mockReset();
+    signIn();
   });
 
   afterEach(() => {
+    useAuthStore.getState().logout();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -96,5 +111,43 @@ describe('useUnreadNotifications', () => {
 
     // ASSERT: No new calls were made
     expect(mockGetUnreadCount).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not call the API at all while anonymous', async () => {
+    // Regression guard: this hook used to fetch unconditionally on mount, so an
+    // anonymous visitor hit /me/notifications/unread_count with no credentials
+    // and the browser console showed a red 401 on every page load.
+    useAuthStore.getState().logout();
+    mockGetUnreadCount.mockResolvedValue(7);
+
+    const { result } = renderHook(() => useUnreadNotifications(), { wrapper: StrictWrapper });
+
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(mockGetUnreadCount).not.toHaveBeenCalled();
+    expect(result.current).toBe(0);
+  });
+
+  it('starts polling as soon as the user signs in', async () => {
+    // Login happens after mount in the real app (the store hydrates first), so
+    // the gate must be reactive rather than evaluated once.
+    useAuthStore.getState().logout();
+    mockGetUnreadCount.mockResolvedValue(4);
+
+    const { result } = renderHook(() => useUnreadNotifications(), { wrapper: StrictWrapper });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(mockGetUnreadCount).not.toHaveBeenCalled();
+
+    await act(async () => {
+      signIn();
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(mockGetUnreadCount).toHaveBeenCalled();
+    expect(result.current).toBe(4);
   });
 });
