@@ -1,6 +1,7 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 import logging
 from app.core.config import settings
 # Routers
@@ -39,6 +40,44 @@ instrument_metrics(app)
 # replayed idempotent response still gets logged + an x-request-id.
 app.add_middleware(IdempotencyMiddleware)          # innermost
 app.add_middleware(LoggingMiddleware)              # request-id + timing
+
+
+class SelectiveGZipMiddleware:
+    """gzip for JSON responses, but never for Server-Sent Events.
+
+    /** WHY: responses were shipping uncompressed — a 10-story list page is ~60KB
+        of JSON, and measured against the live service ~350ms of a 1.2s request was
+        pure transfer. JSON compresses roughly 6-8x, so this is the cheapest
+        latency win available and it helps most on the slow mobile connections
+        where it matters. **/
+    /** WHY NOT plain GZipMiddleware: Starlette's gzip wraps streaming responses
+        too, and `gzip` buffers internally — small SSE events stop arriving
+        promptly, so the live token-by-token story generation
+        (`/stories/generate/stream`) appears to stall. Compression is therefore
+        skipped for streaming paths, which lose nothing: SSE payloads are tiny
+        and latency matters more than bytes. **/
+    /** WHY-THIS-WAY: delegate to Starlette's implementation rather than
+        re-writing it; this only decides *whether* to apply it, keyed on the
+        request path so the decision is made before any response exists. **/
+    """
+
+    _EXCLUDED = ("/stream",)
+
+    def __init__(self, app, minimum_size: int = 500):
+        self.app = app
+        self._gzip = GZipMiddleware(app, minimum_size=minimum_size)
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and not any(
+            frag in scope.get("path", "") for frag in self._EXCLUDED
+        ):
+            await self._gzip(scope, receive, send)
+            return
+        # WebSockets and SSE bypass compression entirely.
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(SelectiveGZipMiddleware)        # compress JSON, skip SSE
 
 frontend_url = settings.FRONTEND_URL.rstrip("/") if settings.FRONTEND_URL else ""
 

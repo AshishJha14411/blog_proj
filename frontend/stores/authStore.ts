@@ -89,3 +89,36 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 );
+
+// ---------------------------------------------------------------------------
+// CROSS-TAB TOKEN SYNC
+// ---------------------------------------------------------------------------
+/**
+ * WHY: refresh tokens are ROTATED server-side — each /auth/refresh blacklists
+ * the token it was given and returns a new one. localStorage is shared between
+ * tabs, but each tab holds its own IN-MEMORY copy of the store, and zustand's
+ * persist middleware does not watch for external writes. So:
+ *
+ *   tab B refreshes -> R1 is blacklisted, R2 written to localStorage
+ *   tab A still holds R1 in memory -> next refresh sends a revoked token
+ *   -> 401 -> tab A gets logged out
+ *
+ * That is exactly the "logging in on one tab kicks me out of the other" bug.
+ *
+ * WHAT: the `storage` event fires in OTHER tabs whenever this origin's
+ * localStorage changes. Re-hydrating on that event makes every tab pick up the
+ * newest refresh token, so no tab is ever holding a revoked one. It also makes
+ * logout propagate: clearing auth in one tab logs the others out consistently
+ * instead of leaving them in a broken half-authenticated state.
+ *
+ * WHY-THIS-WAY: `accessToken` is excluded from `partialize` (F4 — memory only),
+ * and rehydrate merges persisted fields over current state, so a tab keeps its
+ * own valid in-memory access token and only the shared refresh token is synced.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'auth-storage') {
+      void useAuthStore.persist.rehydrate();
+    }
+  });
+}

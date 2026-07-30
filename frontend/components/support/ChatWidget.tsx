@@ -55,8 +55,17 @@ export default function ChatWidget() {
 
     const connect = async () => {
       try {
+        // ABSOLUTE URL on purpose. The axios instance is based at
+        // `${API_URL}/api/v1`, but the WebSocket routers are mounted TOP-LEVEL
+        // on the backend (main.py keeps /ws outside the versioned prefix). A
+        // relative "/ws/ticket" therefore resolved to /api/v1/ws/ticket, which
+        // 404s — the ticket mint failed, so the socket never opened and the chat
+        // silently did nothing. Confirmed in Cloud Run logs:
+        //   POST /ws/ticket         -> 200
+        //   POST /api/v1/ws/ticket  -> 404
+        // Same reason useNotificationSocket builds this URL absolutely.
         const { data } = await axiosInstance.post<{ ticket: string }>(
-          "/ws/ticket",
+          `${API_URL}/ws/ticket`,
         );
         if (cancelled) return;
         const ws = new WebSocket(

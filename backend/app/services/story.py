@@ -4,11 +4,13 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 import uuid
 import base64
+import re
 from fastapi import HTTPException, status, Request
 from sqlalchemy import text, func, or_, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.orm.attributes import set_committed_value
 # Import all necessary models
 from app.models.like import Like
 from app.models.bookmarks import Bookmark
@@ -35,16 +37,48 @@ _llm = LLMAdapter()
 DELETED_USER_LABEL = "Deleted User"
 
 
-def _mask_deleted_authors(items: List[Story]) -> None:
-    """In-memory-only username override for disabled authors.
+# Presentation-only overrides for LIST responses.
+#
+# /** WHY set_committed_value AND NOT plain assignment: assigning to a mapped
+#     column marks the instance dirty, and the async request path now runs a
+#     unit-of-work that COMMITS at the end of every request (dependencies.
+#     get_async_db). A display-only tweak would therefore be flushed — a plain
+#     GET of the story list would permanently overwrite a disabled author's real
+#     username with "Deleted User", and truncating `content` for a card would
+#     DESTROY the story body in Postgres. `set_committed_value` writes the
+#     attribute as though it had been loaded that way, so it produces no history
+#     and nothing to flush. **/
+# /** NOTE the previous docstring claimed these mutations were "never committed".
+#     That was true under the old read-only sync session and silently stopped
+#     being true when the read path became transactional. **/
+_EXCERPT_CHARS = 280
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
 
-    Mutates the loaded ORM `User.username` attribute for display, same
-    pattern as `_populate_interaction_flags` below — never committed, so it
-    can't leak into the database.
-    """
+
+def _mask_deleted_authors(items: List[Story]) -> None:
+    """Show a placeholder byline for disabled authors, without touching the row."""
     for item in items:
         if item.user is not None and item.user.is_disabled:
-            item.user.username = DELETED_USER_LABEL
+            set_committed_value(item.user, "username", DELETED_USER_LABEL)
+
+
+def _excerpt_for_list(items: List[Story]) -> None:
+    """Replace full HTML bodies with a short plain-text excerpt.
+
+    /** WHY: list endpoints were serialising every story's ENTIRE body. Measured
+        against production, `GET /stories/?limit=10` returned ~60KB and ~350ms of
+        a 1.2s request was pure transfer — for cards that only render three
+        clamped lines. **/
+    /** BONUS: the card renders `post.content` as TEXT, so raw markup was being
+        displayed literally ("<h1>The Sclera of Rain...</h1>"). Stripping tags
+        fixes that visible bug at the same time. **/
+    /** Detail endpoints are untouched — they still return the full body. **/
+    """
+    for item in items:
+        text = _WHITESPACE_RE.sub(" ", _HTML_TAG_RE.sub(" ", item.content or "")).strip()
+        excerpt = text[:_EXCERPT_CHARS] + ("…" if len(text) > _EXCERPT_CHARS else "")
+        set_committed_value(item, "content", excerpt)
 
 
 # /** WHY: AI moderation used to run inline and add LLM latency to every
@@ -268,6 +302,7 @@ async def search_stories(
     items = list(items)
     await _populate_interaction_flags(db, items, current_user)
     _mask_deleted_authors(items)
+    _excerpt_for_list(items)
     return total, items
 
 
@@ -305,6 +340,7 @@ async def get_all_stories(db: AsyncSession, limit: int, offset: int, tag: Option
     items = list(items)
     await _populate_interaction_flags(db, items, current_user)
     _mask_deleted_authors(items)
+    _excerpt_for_list(items)
     return total, items
 
 
@@ -364,6 +400,7 @@ async def get_stories_keyset(
 
     await _populate_interaction_flags(db, items, current_user)
     _mask_deleted_authors(items)
+    _excerpt_for_list(items)
     return items, next_cursor
 
 
@@ -384,6 +421,9 @@ async def get_user_stories(db: AsyncSession, user: User, limit: int, offset: int
         )
     ).scalars().unique().all())
     await _populate_interaction_flags(db, items, user)
+    # /stories/me feeds the same PostCard grid, so it gets the same excerpt
+    # treatment — otherwise "My Posts" alone kept shipping full story bodies.
+    _excerpt_for_list(items)
     return total, items
 
 async def get_story_details(db: AsyncSession, story_id: uuid.UUID, current_user: Optional[User], request: Request) -> StoryOut:

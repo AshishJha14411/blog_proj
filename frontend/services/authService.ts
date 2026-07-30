@@ -32,8 +32,24 @@ export const loginUser = async (username: string, password: string): Promise<Log
     return response.data;
 };
 
-export const getMe = async (_token?: string) => {
-    const response = await axiosInstance.get('/auth/me');
+/**
+ * WHY the token argument is now USED: LoginForm calls
+ *   loginUser() -> getMe() -> store.login() -> router.push('/')
+ * so at getMe() time the store is still empty. The request interceptor reads the
+ * token from the store, found none, and sent an unauthenticated request — which
+ * 401'd, logged a red error in the console on EVERY login, and only recovered by
+ * burning a full refresh round-trip (which also rotates the refresh token for no
+ * reason). Passing the freshly-minted token explicitly makes the first call
+ * succeed: no console error, one less round-trip, and less token churn.
+ *
+ * The argument stays optional so callers that rely on the interceptor (any
+ * already-authenticated context) are unaffected.
+ */
+export const getMe = async (token?: string) => {
+    const response = await axiosInstance.get(
+        '/auth/me',
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
+    );
     return response.data;
 };
 
