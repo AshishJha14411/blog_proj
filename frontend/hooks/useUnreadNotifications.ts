@@ -21,6 +21,17 @@ export const unreadCountKey = ["notifications", "unread-count"] as const;
  * WHY the auth gate: calling an authed endpoint while anonymous (or in the beat
  * between login and the token landing in the store) logged a red 401 in the
  * console on every page load.
+ *
+ * WHY NO `initialData` (this was a real production bug): seeding `0` writes a
+ * value into the cache stamped with `dataUpdatedAt = now`. The app's
+ * QueryClient sets `staleTime: 30_000`, so that fabricated zero counted as
+ * FRESH. The query is disabled on first render — `accessToken` is memory-only
+ * and null until AuthInitializer mints one — and by the time the gate opened the
+ * zero was still fresh, so no fetch was issued. With a healthy socket the poll
+ * interval is an hour, so the bell showed "0 unread" indefinitely while the API
+ * was returning `{"count": 2}`. Without `initialData` the query holds no data at
+ * all until it resolves, so opening the gate always triggers a real fetch.
+ * `staleTime: 0` additionally guarantees a badge count is never served stale.
  */
 export function useUnreadNotifications(pollMs = 300_000) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -34,7 +45,7 @@ export function useUnreadNotifications(pollMs = 300_000) {
     refetchInterval: pollMs,
     // A failed count is cosmetic — don't retry-storm the API over a badge.
     retry: false,
-    initialData: 0,
+    staleTime: 0,
   });
 
   return enabled ? (data ?? 0) : 0;

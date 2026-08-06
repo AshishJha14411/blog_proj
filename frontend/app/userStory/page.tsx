@@ -18,7 +18,7 @@ export default async function AllPostsPage({ searchParams }: { searchParams?: Pr
 
   return (
     <main className="mx-auto max-w-5xl p-8 font-sans">
-      <h1 className="mb-8 text-center text-4xl font-bold text-text">All Articles</h1>
+      <h1 className="mb-8 text-center text-4xl font-bold text-text">Stories</h1>
 
       {/* Banner ad above grid */}
       <div className="mb-6">
@@ -40,7 +40,7 @@ export default async function AllPostsPage({ searchParams }: { searchParams?: Pr
           ))}
         </div>
       ) : (
-        <p className="text-center text-text-light">No posts found.</p>
+        <p className="text-center text-text-light">No stories yet.</p>
       )}
 
       {/* Pagination */}

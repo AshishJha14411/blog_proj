@@ -26,6 +26,20 @@ export const getAllPosts = async (limit = 10, offset = 0, tag: string | null = n
     return response.data;
 }
 
+/**
+ * Most-engaged published stories, ranked server-side by likes + comments +
+ * bookmarks. Returns a bare array (not a paginated envelope) because it backs a
+ * fixed home-page rail. An empty array is a normal answer — it means nothing has
+ * been engaged with yet, and the caller should hide the section rather than
+ * falling back to "newest" under a "most loved" heading.
+ */
+export const getPopularPosts = async (limit = 6, days?: number): Promise<StoryOut[]> => {
+    const response = await axiosInstance.get<StoryOut[]>('/stories/popular', {
+        params: { limit, ...(days ? { days } : {}) },
+    });
+    return response.data;
+}
+
 export const updatePost = async (postId: string, postData: { title: string; content: string }): Promise<StoryOut> => {
     const response = await axiosInstance.patch<StoryOut>(`/stories/${postId}`, postData);
     return response.data;

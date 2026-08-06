@@ -32,7 +32,7 @@ export default function StoryDetailClient({ postId }: { postId: string }) {
         const postData = await getPostById(postId);
         if (!cancelled) setPost(postData);
       } catch {
-        if (!cancelled) setError('Post not found or you do not have permission to view it.');
+        if (!cancelled) setError('Story not found or you do not have permission to view it.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -50,7 +50,7 @@ export default function StoryDetailClient({ postId }: { postId: string }) {
 
   if (loading) return <p className="p-8 text-center">Loading post...</p>;
   if (error) return <p className="p-8 text-center text-red-500">{error}</p>;
-  if (!post) return <p className="p-8 text-center">Post not found.</p>;
+  if (!post) return <p className="p-8 text-center">Story not found.</p>;
 
   return (
     <main className="mx-auto max-w-3xl p-8 font-sans">

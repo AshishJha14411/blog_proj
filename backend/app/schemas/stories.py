@@ -62,6 +62,10 @@ class StoryGenerateIn(BaseModel):
     tone: Optional[constr(max_length=100)] = None
     length_label: Optional[Literal["flash","short","medium","long"]] = None
     publish_now: bool = False
+    # /** WHY: optional — the genre is converted into tags automatically
+    #     (see `tags_from_genre`), so a generated story is never untagged.
+    #     Anything supplied here is merged in and normalised the same way. **/
+    tag_names: List[constr(max_length=50)] = Field(default_factory=list)
     temperature: Optional[float] = Field(default=0.8, ge=0.0, le=2.0)
     # Default None so the LLM adapter falls back to settings.LLM_MODEL —
     # the single source of truth. A hardcoded default here (previously

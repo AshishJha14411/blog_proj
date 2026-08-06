@@ -357,6 +357,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stories/popular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Popular Stories
+         * @description Most-engaged published stories, ranked by likes + comments + bookmarks.
+         *
+         *     Declared BEFORE `/{story_id}` so "popular" isn't parsed as a UUID path.
+         *
+         *     Returns a bare list rather than a `StoryList` envelope: this powers a fixed
+         *     home-page rail, not a paginated view, so a total/offset would be noise.
+         *     Stories with no engagement are omitted, so an empty list is a valid answer
+         *     and the client hides the section.
+         */
+        get: operations["list_popular_stories_api_v1_stories_popular_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stories/{story_id}": {
         parameters: {
             query?: never;
@@ -1626,6 +1653,8 @@ export interface components {
         StoryFeedbackIn: {
             /** Feedback */
             feedback: string;
+            /** Length Label */
+            length_label?: ("flash" | "short" | "medium" | "long") | null;
         };
         /** StoryGenerateIn */
         StoryGenerateIn: {
@@ -1646,6 +1675,8 @@ export interface components {
              * @default false
              */
             publish_now: boolean;
+            /** Tag Names */
+            tag_names?: string[];
             /**
              * Temperature
              * @default 0.8
@@ -2679,6 +2710,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoryList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_popular_stories_api_v1_stories_popular_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description Restrict to stories published in the last N days. Omit for all-time. */
+                days?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryOut"][];
                 };
             };
             /** @description Validation Error */

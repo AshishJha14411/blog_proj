@@ -27,7 +27,7 @@ export default async function PostsByTagPage({
         </div>
       ) : (
         <p className="text-center text-text-light">
-          No posts found with this tag.
+          No stories found with this tag.
         </p>
       )}
     </main>
