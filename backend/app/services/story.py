@@ -558,7 +558,7 @@ async def get_user_stories(db: AsyncSession, user: User, limit: int, offset: int
     ).scalars().unique().all())
     await _populate_interaction_flags(db, items, user)
     # /stories/me feeds the same PostCard grid, so it gets the same excerpt
-    # treatment — otherwise "My Posts" alone kept shipping full story bodies.
+    # treatment — otherwise "My Stories" alone kept shipping full story bodies.
     _excerpt_for_list(items)
     return total, items
 
