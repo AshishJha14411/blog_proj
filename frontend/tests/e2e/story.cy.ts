@@ -76,7 +76,7 @@ describe('Full-Stack Story E2E Journey', () => {
     
     // ASSERT 1: We are on the correct page
     cy.url().should('include', '/userStory/create');
-    cy.contains('h1', 'Create a New Post').should('be.visible');
+    cy.contains('h1', 'Write a New Story').should('be.visible');
 
     // ACT: Fill out the form
     cy.get('input[id="title"]').type(testStory.title);
@@ -89,7 +89,7 @@ describe('Full-Stack Story E2E Journey', () => {
     cy.contains(testStory.tags[0]).should('be.visible');
 
     // ACT: Submit the form
-    cy.get('button[type="submit"]').contains('Publish Post').click();
+    cy.get('button[type="submit"]').contains('Publish Story').click();
 
     // ASSERT 2: We are redirected to the new story's page
     cy.url({ timeout: 10000 }).should('include', '/userStory/'); 

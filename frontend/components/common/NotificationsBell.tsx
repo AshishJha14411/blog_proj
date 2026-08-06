@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useNotificationSocket } from "@/hooks/useNotificationSocket";
-import { useUnreadNotifications } from "@/hooks/useUnreadNotifications";
+import { unreadCountKey, useUnreadNotifications } from "@/hooks/useUnreadNotifications";
 import {
   getNotifications,
   markAllRead,
@@ -21,7 +21,6 @@ export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [socketUnread, setSocketUnread] = useState(0);
   const queryClient = useQueryClient();
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -58,19 +57,22 @@ export default function NotificationsBell() {
   // WHY: the socket handles updates in real time. If it downgrades (too
   // many failed reconnects) we fall through to polling — the hook returns
   // 0 downgraded=false when everything is fine.
+  //
+  // WHY invalidate instead of keeping a counter: the arriving notification is
+  // already persisted, so the server's unread count includes it. Adding a local
+  // tally on top (`socketUnread + polled`) counted the same notification twice
+  // as soon as the count refetched. Invalidating makes the server the single
+  // source of truth and keeps the badge correct across tabs.
   const socket = useNotificationSocket(
     useCallback((msg) => {
       if (msg.type !== "notification") return;
-      // Optimistically bump the badge. When the dropdown opens we'll
-      // reconcile against the server's list.
-      setSocketUnread((n) => n + 1);
-    }, []),
+      void queryClient.invalidateQueries({ queryKey: unreadCountKey });
+    }, [queryClient]),
   );
 
   // WHY: only run the polling hook when the socket downgraded. If the
   // socket is alive, polling is redundant and wastes a request every 5 min.
-  const polled = useUnreadNotifications(socket.downgraded ? 300_000 : 60 * 60 * 1000);
-  const unread = socket.downgraded ? polled : socketUnread + polled;
+  const unread = useUnreadNotifications(socket.downgraded ? 300_000 : 60 * 60 * 1000);
 
   useEffect(() => {
     if (!open) return;
@@ -78,13 +80,13 @@ export default function NotificationsBell() {
     getNotifications(false, 10, 0)
       .then((d) => {
         setItems(d.items);
-        // WHY: reconcile the optimistic counter against reality once we
-        // have the authoritative list.
-        setSocketUnread(0);
+        // The list we just fetched is authoritative; make sure the badge
+        // reflects the same server state rather than an older cached count.
+        refreshUnread();
       })
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, [open]);
+  }, [open, refreshUnread]);
 
   async function onClickItem(n: NotificationItem) {
     setItems((prev) =>
@@ -129,7 +131,6 @@ export default function NotificationsBell() {
               className="text-xs underline"
               onClick={async () => {
                 setItems((prev) => prev.map((x) => ({ ...x, is_read: true })));
-                setSocketUnread(0);
                 try {
                   await markAllRead();
                   refreshUnread(); // was leaving a stale number on the bell

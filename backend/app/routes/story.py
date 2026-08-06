@@ -186,6 +186,31 @@ async def list_my_stories(
     return StoryList(total=total, limit=limit, offset=offset, items=validated_items)
 
 
+@router.get("/popular", response_model=List[StoryOut], status_code=status.HTTP_200_OK)
+async def list_popular_stories(
+    request: Request,
+    response: Response,
+    limit: int = Query(6, gt=0, le=24),
+    days: Optional[int] = Query(
+        None, ge=1, le=365,
+        description="Restrict to stories published in the last N days. Omit for all-time.",
+    ),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_async),
+):
+    """Most-engaged published stories, ranked by likes + comments + bookmarks.
+
+    Declared BEFORE `/{story_id}` so "popular" isn't parsed as a UUID path.
+
+    Returns a bare list rather than a `StoryList` envelope: this powers a fixed
+    home-page rail, not a paginated view, so a total/offset would be noise.
+    Stories with no engagement are omitted, so an empty list is a valid answer
+    and the client hides the section.
+    """
+    items = await story.get_popular_stories(db, limit, days, current_user)
+    return [StoryOut.model_validate(item, from_attributes=True) for item in items]
+
+
 @router.get("/{story_id}", response_model=StoryOut, status_code=status.HTTP_200_OK)
 async def read_story_details(
     story_id: uuid.UUID, # Correctly a UUID

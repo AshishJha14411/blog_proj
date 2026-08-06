@@ -1,0 +1,8 @@
+# Documentation tooling only — NOT a runtime dependency.
+#
+# Deliberately kept out of backend/requirements.txt so the deployed container
+# image stays lean. Install this only when regenerating the architecture GIF:
+#
+#   pip install -r docs/architecture/requirements.txt
+#   python docs/architecture/generate_architecture_gif.py
+pillow==11.3.0

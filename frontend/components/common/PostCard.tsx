@@ -4,9 +4,16 @@ import { Post } from '@/services/postService';
 
 interface PostCardProps {
   post: Post;
+  /**
+   * Show like/comment counts. Off by default: the list endpoints don't compute
+   * them, so rendering zeros everywhere would state something false. Only
+   * `/stories/popular` populates these, and that's the one place the numbers
+   * are the reason the card is on screen.
+   */
+  showEngagement?: boolean;
 }
 
-export default function PostCard({ post }: PostCardProps) {
+export default function PostCard({ post, showEngagement = false }: PostCardProps) {
   // --- Conditional Logic for Status ---
   let statusText = '';
   let statusColor = '';
@@ -48,10 +55,19 @@ export default function PostCard({ post }: PostCardProps) {
             </span>
           ))}
         </div>
-        <div className="text-sm text-text-light">
+        <div className="flex flex-wrap items-center gap-x-2 text-sm text-text-light">
           <span>By {post.user?.username ?? "Unknown"}</span>
-          <span className="mx-2">•</span>
+          <span>•</span>
           <span>{new Date(post.created_at).toLocaleDateString()}</span>
+          {showEngagement && (
+            <>
+              <span>•</span>
+              <span title={`${post.likes_count ?? 0} likes`}>♥ {post.likes_count ?? 0}</span>
+              {(post.comments_count ?? 0) > 0 && (
+                <span title={`${post.comments_count} comments`}>💬 {post.comments_count}</span>
+              )}
+            </>
+          )}
         </div>
       </div>
     </Link>

@@ -49,7 +49,7 @@ export default function EditPostPage() {
   return (
     <main className="p-8">
       <div className="mx-auto max-w-2xl rounded-lg bg-background-alt p-8 shadow-md">
-        <h1 className="mb-6 text-3xl font-bold text-text">Edit Post</h1>
+        <h1 className="mb-6 text-3xl font-bold text-text">Edit Story</h1>
         <form className="space-y-6" onSubmit={handleSubmit}>
           <div>
             <FormLabel htmlFor="title">Title</FormLabel>

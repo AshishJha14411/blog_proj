@@ -1,7 +1,7 @@
 from __future__ import annotations
 from app.utils.time import utcnow
-from datetime import datetime
-from typing import List, Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Iterable, List, Optional, Tuple
 import uuid
 import base64
 import re
@@ -14,6 +14,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 # Import all necessary models
 from app.models.like import Like
 from app.models.bookmarks import Bookmark
+from app.models.comment import Comment
 from app.models.stories import Story, ContentSource, StoryStatus, LengthLabel
 from app.models.tags import Tag
 from app.models.view_history import ViewHistory
@@ -81,6 +82,77 @@ def _excerpt_for_list(items: List[Story]) -> None:
         set_committed_value(item, "content", excerpt)
 
 
+# --------------------------------------------------------------------------
+# Tags
+# --------------------------------------------------------------------------
+# /** WHY: AI-generated stories were landing with ZERO tags — `create_story`
+#     accepted `tag_names` but the generation path never did, so every story
+#     written through the generator was untaggable and the tag filter had
+#     nothing to filter on (production: 0 rows in `tags`, 0 in `story_tags`).
+#     The generator already collects a `genre`, which is exactly the axis a
+#     reader browses by, so genre is promoted into a real tag rather than
+#     asking the author for the same information twice. **/
+_TAG_MAX_LEN = 50
+_TAG_SPLIT_RE = re.compile(r"[,/&+|]|\band\b", re.IGNORECASE)
+_TAG_STRIP_RE = re.compile(r"[^a-z0-9 -]")
+
+
+def normalize_tag(raw: str) -> Optional[str]:
+    """Clean free text into a usable tag name, or None if nothing is left.
+
+    /** DELIBERATELY NOT a controlled vocabulary. Whatever genre the author
+        chose becomes the tag as they wrote it — there is no alias table folding
+        "sci-fi" onto a canonical "science-fiction", because that is a curated
+        picklist in disguise and it silently overrides the author's words.
+        Near-duplicate tags are accepted as the cost of that, and are a
+        housekeeping job for later rather than something to pre-empt here. **/
+
+    The transformation is presentational only: lowercase, drop punctuation,
+    collapse whitespace, hyphenate. `"  Sci-Fi!! "` becomes `"sci-fi"`, so
+    casing and stray punctuation alone don't create separate rows.
+    """
+    if not raw:
+        return None
+    name = _TAG_STRIP_RE.sub(" ", str(raw).strip().lower())
+    name = _WHITESPACE_RE.sub(" ", name.replace("-", " ")).strip()
+    if not name:
+        return None
+    return name.replace(" ", "-")[:_TAG_MAX_LEN].strip("-") or None
+
+
+def tags_from_genre(genre: Optional[str], extra: Optional[Iterable[str]] = None) -> List[str]:
+    """Convert a story's genre into tag names — the genre *is* the tag.
+
+    A genre is often compound ("Sci-Fi & Horror", "mystery, thriller"), so it
+    splits on the usual separators and each part becomes its own tag. `extra`
+    (explicit `tag_names` from the client) is merged in and wins on ordering.
+    Duplicates are removed while preserving order.
+    """
+    names: List[str] = []
+    for candidate in list(extra or []) + _TAG_SPLIT_RE.split(genre or ""):
+        normalized = normalize_tag(candidate)
+        if normalized:
+            names.append(normalized)
+    return list(dict.fromkeys(names))
+
+
+def resolve_tags(db: Session, names: Iterable[str]) -> List[Tag]:
+    """Get-or-create `Tag` rows for `names`, deduped and order-preserving.
+
+    Shared by the authored and generated paths so both clean names identically —
+    a tag created by the generator and one typed by an author are the same row.
+    """
+    tag_objs: List[Tag] = []
+    for name in dict.fromkeys(n for n in (normalize_tag(x) for x in names) if n):
+        tag = db.query(Tag).filter(Tag.name == name).first()
+        if not tag:
+            tag = Tag(name=name)
+            db.add(tag)
+            db.flush()
+        tag_objs.append(tag)
+    return tag_objs
+
+
 # /** WHY: AI moderation used to run inline and add LLM latency to every
 #     publish. Now the row lands in `pending`, the async task runs the
 #     moderator, and the row flips to `published` / `rejected` when it's
@@ -90,19 +162,12 @@ def _excerpt_for_list(items: List[Story]) -> None:
 #     right after the request commits, so integration tests still see the
 #     final state without special-casing. **/
 def create_story(db: Session, data: StoryCreate, current_user: User) -> Story:
-    tag_objs = []
     if not has_perm(current_user, Perm.STORY_CREATE):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to create a story."
         )
-    for name in dict.fromkeys(data.tag_names or []):
-        tag = db.query(Tag).filter(Tag.name == name).first()
-        if not tag:
-            tag = Tag(name=name)
-            db.add(tag)
-            db.flush()
-        tag_objs.append(tag)
+    tag_objs = resolve_tags(db, data.tag_names or [])
 
     # /** WHY: land the row as `pending` regardless of the client-requested
     #     `is_published` — the moderation task decides whether it's published
@@ -195,6 +260,13 @@ def finalize_generated_story(
         status=(StoryStatus.pending if data.publish_now else StoryStatus.generated),
         prompt=data.prompt, model_name=data.model_name, temperature=data.temperature,
         provider_message_id=msg_id, version=1
+    )
+    # /** WHY: the genre doubles as the story's tags. Without this, generated
+    #     stories carried a genre the reader could see but never browse by, and
+    #     the tag index stayed permanently empty. Explicit `tag_names` are
+    #     merged in so a future UI can add tags without losing the genre. **/
+    new_story.tags = resolve_tags(
+        db, tags_from_genre(data.genre, extra=getattr(data, "tag_names", None))
     )
     db.add(new_story)
     db.flush()
@@ -344,6 +416,70 @@ async def get_all_stories(db: AsyncSession, limit: int, offset: int, tag: Option
     return total, items
 
 
+async def get_popular_stories(
+    db: AsyncSession, limit: int, days: Optional[int], current_user: Optional[User]
+) -> List[Story]:
+    """ASYNC. Published stories ranked by reader engagement.
+
+    /** WHY: the home feed was strictly reverse-chronological, so a story that
+        readers actually engaged with scrolled away as soon as anything newer
+        landed. This surfaces the most-liked / most-discussed work instead. **/
+
+    Score is `likes + comments + bookmarks` computed as three correlated
+    subqueries, which keeps this a single round trip and — unlike a JOIN with
+    GROUP BY across three one-to-many tables — cannot fan rows out and multiply
+    the counts against each other.
+
+    Stories with no engagement at all are excluded rather than padded with
+    recent posts: an empty result lets the client hide the section, which is
+    honest, where a padded one would quietly relabel "newest" as "popular".
+    """
+    likes_sq = (
+        select(func.count()).select_from(Like)
+        .where(Like.story_id == Story.id).scalar_subquery()
+    )
+    comments_sq = (
+        select(func.count()).select_from(Comment)
+        .where(Comment.story_id == Story.id).scalar_subquery()
+    )
+    bookmarks_sq = (
+        select(func.count()).select_from(Bookmark)
+        .where(Bookmark.story_id == Story.id).scalar_subquery()
+    )
+    score = likes_sq + comments_sq + bookmarks_sq
+
+    conditions = [Story.deleted_at.is_(None), Story.is_published.is_(True)]
+    if days:
+        conditions.append(Story.created_at >= datetime.utcnow() - timedelta(days=days))
+
+    rows = (
+        await db.execute(
+            select(Story, likes_sq, comments_sq, bookmarks_sq)
+            .where(*conditions, score > 0)
+            .options(joinedload(Story.user), selectinload(Story.tags))
+            # created_at breaks ties so the ordering is deterministic across
+            # requests — otherwise pagination and caching see rows shuffle.
+            .order_by(score.desc(), Story.created_at.desc())
+            .limit(limit)
+        )
+    ).unique().all()
+
+    items: List[Story] = []
+    for item, likes, comments, bookmarks in rows:
+        # These are plain response-only attributes, not mapped columns, so a
+        # direct assignment can't be flushed back to the row (contrast
+        # `_excerpt_for_list`, which must use set_committed_value).
+        item.likes_count = likes
+        item.comments_count = comments
+        item.bookmarks_count = bookmarks
+        items.append(item)
+
+    await _populate_interaction_flags(db, items, current_user)
+    _mask_deleted_authors(items)
+    _excerpt_for_list(items)
+    return items
+
+
 def _encode_cursor(created_at: datetime, story_id: uuid.UUID) -> str:
     return base64.urlsafe_b64encode(f"{created_at.isoformat()}|{story_id}".encode()).decode()
 
@@ -422,7 +558,7 @@ async def get_user_stories(db: AsyncSession, user: User, limit: int, offset: int
     ).scalars().unique().all())
     await _populate_interaction_flags(db, items, user)
     # /stories/me feeds the same PostCard grid, so it gets the same excerpt
-    # treatment — otherwise "My Posts" alone kept shipping full story bodies.
+    # treatment — otherwise "My Stories" alone kept shipping full story bodies.
     _excerpt_for_list(items)
     return total, items
 

@@ -85,4 +85,35 @@ describe('useUnreadNotifications', () => {
     // The bell and the /notifications page must invalidate the same prefix.
     expect(unreadCountKey[0]).toBe('notifications');
   });
+
+  it('fetches the real count under the app-level staleTime, starting signed out', async () => {
+    // REGRESSION (production): the hook used `initialData: 0`. That seeds the
+    // cache with a value stamped `dataUpdatedAt = now`, and the real app's
+    // QueryClient sets `staleTime: 30_000` — so the fabricated zero counted as
+    // FRESH. Because `accessToken` is memory-only, the query is disabled on the
+    // first render and only becomes enabled once AuthInitializer mints a token;
+    // by then the zero was still fresh, so no fetch was ever issued and the bell
+    // showed 0 while the API returned 2.
+    //
+    // The earlier tests all passed because they build a QueryClient WITHOUT
+    // staleTime (defaulting to 0), which refetches where production would not.
+    // This one mirrors app/providers.tsx and starts from the signed-out state.
+    useAuthStore.getState().logout();
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 30_000 } },
+    });
+    mockGetUnreadCount.mockResolvedValue(2);
+
+    const { result, rerender } = renderHook(() => useUnreadNotifications(), { wrapper });
+
+    // Gate closed: no token yet, so nothing is fetched and nothing is displayed.
+    expect(result.current).toBe(0);
+    expect(mockGetUnreadCount).not.toHaveBeenCalled();
+
+    // AuthInitializer lands the access token — the gate opens.
+    signIn();
+    rerender();
+
+    await waitFor(() => expect(result.current).toBe(2));
+  });
 });

@@ -32,7 +32,7 @@ export default function CreatePostForm() {
 
   return (
     <div className="mx-auto max-w-2xl rounded-lg bg-background-alt p-8 shadow-md">
-      <h1 className="mb-6 text-3xl font-bold text-text">Create a New Post</h1>
+      <h1 className="mb-6 text-3xl font-bold text-text">Write a New Story</h1>
       <form className="space-y-6" onSubmit={handleSubmit}>
         <div>
           <FormLabel htmlFor="title">Title</FormLabel>
@@ -60,7 +60,7 @@ export default function CreatePostForm() {
         </div>
         {error && <p className="text-sm text-red-500">{error}</p>}
         <div>
-          <Button type="submit">Publish Post</Button>
+          <Button type="submit">Publish Story</Button>
         </div>
       </form>
     </div>

@@ -16,7 +16,7 @@ export default function PostActions({ postAuthorId, postId, isAI }: PostActionsP
   const router = useRouter();
   // console.log(user)
   const handleDelete = async () => {
-    if (window.confirm('Are you sure you want to delete this post?')) {
+    if (window.confirm('Are you sure you want to delete this story?')) {
       try {
         await deletePost(String(postId));
         router.push('/myposts');

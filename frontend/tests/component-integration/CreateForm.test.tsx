@@ -60,7 +60,7 @@ describe('CreatePostForm', () => {
     expect(screen.getByLabelText('current-tags').textContent).toContain('tech');
 
     // Submit
-    await user.click(screen.getByRole('button', { name: /publish post/i }));
+    await user.click(screen.getByRole('button', { name: /publish story/i }));
 
     await waitFor(() => {
       expect(createPost).toHaveBeenCalledWith({
@@ -84,7 +84,7 @@ describe('CreatePostForm', () => {
     await user.type(screen.getByLabelText(/title/i), 'Oops');
     await user.type(screen.getByLabelText(/content/i), 'Bad things happen');
 
-    await user.click(screen.getByRole('button', { name: /publish post/i }));
+    await user.click(screen.getByRole('button', { name: /publish story/i }));
 
     // Error message appears, no navigation
     expect(

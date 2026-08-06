@@ -20,12 +20,12 @@ export default function MyPostsPage() {
   }, [isHydrated, isAuthenticated, router]);
 
   if (!isHydrated || (isAuthenticated && isLoading)) {
-    return <p className="p-8 text-center">Loading your posts...</p>;
+    return <p className="p-8 text-center">Loading your stories...</p>;
   }
 
   return (
     <main className="mx-auto max-w-5xl p-8 font-sans">
-      <h1 className="mb-8 text-3xl font-bold text-text">My Posts</h1>
+      <h1 className="mb-8 text-3xl font-bold text-text">My Stories</h1>
       <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
         {posts.length > 0 ? (
           posts.map((post) => <PostCard key={post.id} post={post} />)

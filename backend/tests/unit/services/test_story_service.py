@@ -87,6 +87,10 @@ def _get_story_details(db_session, *a, **k):
     return _run_async(story_service.get_story_details(_AsyncSessionAdapter(db_session), *a, **k))
 
 
+def _get_popular_stories(db_session, *a, **k):
+    return _run_async(story_service.get_popular_stories(_AsyncSessionAdapter(db_session), *a, **k))
+
+
 # -----------------------
 # CREATE (human-authored)
 # -----------------------
@@ -124,6 +128,8 @@ def test_create_story_lands_in_pending_and_enqueues_moderation(db_session: Sessi
     assert created.status == StoryStatus.pending
     assert created.source == ContentSource.user
 
+    # Tag names are deduped and cleaned (case, punctuation) but NOT mapped onto
+    # a controlled vocabulary — whatever the author typed is what they get.
     names = sorted([t.name for t in created.tags])
     assert names == ["drama", "scifi"]
 
@@ -189,6 +195,59 @@ def test_generate_story_success_publishes_when_clean_and_publish_now(db_session:
     assert len(revs) == 1
     assert revs[0].version == 1
     assert "stars" in (revs[0].prompt or "")
+
+    # REGRESSION: generated stories used to land with NO tags at all —
+    # `create_story` resolved `tag_names` but the generation path never did, so
+    # production accumulated 9 stories, 0 tags and 0 story_tags rows. The
+    # story's genre now becomes its tag, exactly as the author wrote it.
+    assert [t.name for t in created.tags] == ["scifi"]
+
+
+@pytest.mark.parametrize(
+    "genre, expected",
+    [
+        ("horror", ["horror"]),
+        ("Sci-Fi & Horror", ["sci-fi", "horror"]),   # compound genre splits
+        ("mystery, thriller", ["mystery", "thriller"]),
+        ("Rom Com", ["rom-com"]),                    # kept verbatim, not mapped
+        ("SCIFI!!", ["scifi"]),                      # case/punctuation only
+        ("", []),                                    # nothing usable
+        ("!!!", []),                                 # punctuation only
+    ],
+)
+def test_generated_story_derives_tags_from_genre(db_session: Session, monkeypatch, genre, expected):
+    """The genre IS the tag set for an AI story — including compound genres.
+
+    No controlled vocabulary: "Rom Com" stays "rom-com" rather than being folded
+    onto some canonical "romantic-comedy". Cleanup of near-duplicates is a
+    deliberate later concern.
+    """
+    creator = _allow_creator()
+    monkeypatch.setattr(story_service._llm, "generate",
+                        lambda prompt, model, temperature, max_tokens, timeout: ("<p>body</p>", "m1"))
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    data = StoryGenerateIn(prompt="Write something", genre=genre or None, publish_now=False)
+    created = story_service.generate_story(db_session, data, creator)
+
+    assert [t.name for t in created.tags] == expected
+
+
+def test_generated_story_merges_explicit_tags_with_genre(db_session: Session, monkeypatch):
+    """Explicit `tag_names` are merged with the genre, deduped after normalising."""
+    creator = _allow_creator()
+    monkeypatch.setattr(story_service._llm, "generate",
+                        lambda prompt, model, temperature, max_tokens, timeout: ("<p>body</p>", "m2"))
+    monkeypatch.setattr(story_service, "moderate_content", lambda _: (False, []))
+
+    data = StoryGenerateIn(
+        prompt="Write something", genre="Horror",
+        tag_names=["Dark Academia", "horror"],  # "horror" duplicates the genre
+        publish_now=False,
+    )
+    created = story_service.generate_story(db_session, data, creator)
+
+    assert [t.name for t in created.tags] == ["dark-academia", "horror"]
 
 
 def test_generate_story_without_publish_now_stays_generated(db_session: Session, monkeypatch):
@@ -312,6 +371,62 @@ def test_get_all_stories_visibility_and_filters(db_session: Session, monkeypatch
     total_author, items_author = _get_all_stories(db_session, 10, 0, tag=None, author_id=s2.user_id, current_user=mod)
     assert total_author == 1
     assert items_author[0].id == s2.id
+
+
+def test_get_popular_stories_ranks_by_engagement(db_session: Session, monkeypatch):
+    """Ranked by likes + comments + bookmarks; unengaged stories are excluded.
+
+    The exclusion matters: padding the list with recent stories would relabel
+    "newest" as "most loved", which is a lie the UI can't detect. An empty list
+    is the honest answer and the client hides the section.
+    """
+    from app.models.comment import Comment
+
+    author = _allow_creator()
+    readers = [UserFactory(role=RoleFactory(name="user")) for _ in range(3)]
+
+    def _published(title):
+        s = StoryFactory(user=author, title=title, is_published=True,
+                         status=StoryStatus.published, deleted_at=None)
+        db_session.commit()
+        return s
+
+    hot, warm, cold = _published("Hot"), _published("Warm"), _published("Cold")
+
+    # hot: 3 likes + 1 comment = 4  |  warm: 1 like = 1  |  cold: nothing = 0
+    # Likes carry a UNIQUE(user_id, story_id), so engagement needs distinct users.
+    for r in readers:
+        db_session.add(Like(user_id=r.id, story_id=hot.id))
+    db_session.add(Comment(user_id=readers[0].id, story_id=hot.id, content="loved it"))
+    db_session.add(Like(user_id=readers[0].id, story_id=warm.id))
+    db_session.commit()
+
+    items = _get_popular_stories(db_session, limit=10, days=None, current_user=None)
+
+    assert [s.title for s in items] == ["Hot", "Warm"]
+    assert cold.id not in {s.id for s in items}
+    assert items[0].likes_count == 3
+    assert items[0].comments_count == 1
+    assert items[1].likes_count == 1
+
+
+def test_get_popular_stories_excludes_unpublished_and_deleted(db_session: Session):
+    """A liked story that is soft-deleted or unpublished must not surface."""
+    author = _allow_creator()
+    reader = UserFactory(role=RoleFactory(name="user"))
+
+    hidden = StoryFactory(user=author, title="Hidden", is_published=False,
+                          status=StoryStatus.draft, deleted_at=None)
+    removed = StoryFactory(user=author, title="Removed", is_published=True,
+                           status=StoryStatus.published, deleted_at=utcnow())
+    db_session.commit()
+
+    db_session.add(Like(user_id=reader.id, story_id=hidden.id))
+    db_session.add(Like(user_id=reader.id, story_id=removed.id))
+    db_session.commit()
+
+    items = _get_popular_stories(db_session, limit=10, days=None, current_user=None)
+    assert items == []
 
 
 def test_get_user_stories(db_session: Session, monkeypatch):

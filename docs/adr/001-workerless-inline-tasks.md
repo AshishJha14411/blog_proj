@@ -25,8 +25,9 @@ costs follow:
 2. **Upstash:** kombu polls the broker roughly once per second, forever —
    ~86k+ commands/day produced by an idle system, consuming free-tier quota.
 
-This is a personal portfolio project funded out of pocket, with traffic that is
-idle the overwhelming majority of the day. The cost is not justifiable.
+The service is idle the overwhelming majority of the day, and operates under a
+hard cost ceiling. A continuously-billed instance to serve a queue that is empty
+almost all the time is not justifiable.
 
 ## Decision
 
