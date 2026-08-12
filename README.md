@@ -231,12 +231,14 @@ Design points worth noting:
 - **`stories.row_version`** — an optimistic-lock column via SQLAlchemy's
   `version_id_col`. A concurrent edit raises `StaleDataError` → `409`, instead of
   silently overwriting. Distinct from `version`, which counts AI revisions.
-- **Soft deletes** — `deleted_at` with a partial index; a deleted author's stories
-  survive with the byline masked.
+- **Soft deletes** — `deleted_at`, indexed, and filtered on every read path; a
+  deleted author's stories survive with the byline masked at serialisation time.
 - **Composite uniques** on `(user_id, story_id)` for likes and bookmarks — the
   database enforces "one like per user per story", not application code.
 
-Full table-by-table schema: **[backend/README.md](backend/README.md#system-design)**.
+**Full schema with columns, constraints and indexes:
+[backend/README.md → Database design](backend/README.md#database-design)** —
+a column-level ER diagram, the constraint table, and every table's purpose.
 
 ### Trade-offs
 
