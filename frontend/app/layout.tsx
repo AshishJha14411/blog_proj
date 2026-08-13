@@ -35,9 +35,17 @@ export const metadata: Metadata = {
  *
  * WHY inline and blocking: React can only set the class after hydration, which
  * is at least one paint too late — the page would flash parchment-white before
- * turning espresso. This runs synchronously in <head>, so the very first paint
- * is already correct. It's also why <html> carries suppressHydrationWarning:
- * the class it adds is invisible to the server render.
+ * turning espresso. A synchronous script blocks the parser before any of the
+ * body renders, so the very first paint is already correct. It's also why
+ * <html> carries suppressHydrationWarning: the class it adds is invisible to
+ * the server render.
+ *
+ * WHY THE FIRST CHILD OF <body> AND NOT A HAND-WRITTEN <head>: the App Router
+ * owns <head> and injects into it, so a literal <head> element here hydrates
+ * against markup React didn't author — the client expected this <script> where
+ * the server had whitespace, and every page threw "Hydration failed". Cypress
+ * fails a test on any uncaught application error, so that took the whole e2e
+ * suite down (7 specs) while unit tests and the production build stayed green.
  */
 const THEME_SCRIPT = `(function(){try{var s=localStorage.getItem('theme');var d=s?s==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;if(d){document.documentElement.classList.add('dark');}document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
 
@@ -50,12 +58,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
-      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} antialiased`}
       >
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <Providers>
           <AuthInitializer />
           <div className="relative flex min-h-screen flex-col">

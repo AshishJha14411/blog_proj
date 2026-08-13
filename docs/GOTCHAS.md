@@ -237,6 +237,39 @@ on visible strings — so a copy rename passes everything locally and fails ther
 
 It fails at startup with a module-resolution error. Use the default.
 
+### Never hand-write `<head>` in the root layout — Cypress injects into it
+
+**Symptom:** every e2e spec fails on page load, before a single assertion runs,
+with `Hydration failed because the server rendered HTML didn't match the client`
+and a `{" "}` in the diff. Everything local is green: `tsc`, vitest, `next
+build`, screenshots, even a DevTools-protocol console probe against plain Chrome.
+
+**Cause:** Cypress proxies the app under test and rewrites the document,
+injecting its own instrumentation as `<head> <script>…` — **note the leading
+space**. That whitespace becomes a text node and the first child of `<head>`.
+
+If the root layout renders a literal `<head>` in JSX, React *owns and hydrates*
+its children by position: it expected your `<script>` first, found whitespace,
+and threw. Because Cypress fails a spec on any uncaught application error, the
+whole suite dies at page load.
+
+**Fix:** don't render `<head>` at all. Put the script as the first child of
+`<body>`; React 19 hoists it into the framework-managed `<head>` on both server
+and client, tracking it by identity rather than DOM position, so an injected
+sibling can't shift it.
+
+Verified: with the script written into `<body>`, the served HTML still has it
+inside `<head>` (before `</head>`), so the no-flash theme behaviour is unchanged.
+
+**Why nothing local catches it:** nothing except Cypress injects into `<head>`.
+To reproduce without Cypress, proxy the dev server and inject
+`' <script>…</script>'` after `<head>` — the leading space is the whole bug, and
+a probe without it reports clean against a known-broken build.
+
+**Rule:** in the App Router, the framework owns `<head>`. Use the `metadata`
+export for metadata, and hoisting for scripts. A literal `<head>` in the root
+layout is a hydration boundary you don't want.
+
 ---
 
 ## Production / deploy
