@@ -1,16 +1,16 @@
 import React from "react";
 
+import { cn } from "@/lib/cn";
+import { inputBase } from "./Input";
+
 type TextareaProps = React.ComponentPropsWithoutRef<'textarea'> & {
   className?: string;
 };
 
 const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ className, ...props }, ref) => {
-    const base =
-      "mt-1 block w-full rounded-md border-gray-300 text-text shadow-sm focus:border-primary focus:ring-primary sm:text-sm";
-    const merged = [base, className].filter(Boolean).join(" ");
-
-    return <textarea ref={ref} className={merged} {...props} />;
+    // Shares Input's token set so a field never drifts from the field above it.
+    return <textarea ref={ref} className={cn(inputBase, 'leading-relaxed', className)} {...props} />;
   }
 );
 

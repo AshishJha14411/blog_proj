@@ -3,6 +3,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Button from '@/components/ui/Button';
+import FormLabel from '@/components/ui/FormLabel';
+import Input from '@/components/ui/Input';
+import PageHeader from '@/components/ui/PageHeader';
+import Textarea from '@/components/ui/Textarea';
 import { useAuth } from '@/hooks/useAuth';
 import { adminCreateAd } from '@/services/adsService';
 import { getErrorMessage } from '@/lib/errors';
@@ -41,7 +46,7 @@ export default function AdminCreateAdPage() {
   //    If not authorized after hydration, show a stable placeholder.
   if (!isHydrated) return null;
   if (!isAuthorized) {
-    return <div className="p-6 text-sm text-gray-600">Redirecting…</div>;
+    return <div className="p-6 text-sm text-text-subtle">Redirecting…</div>;
   }
 
   // 5) Normal render (now safe)
@@ -67,52 +72,86 @@ export default function AdminCreateAdPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Create Ad</h1>
+    <main className="mx-auto max-w-3xl px-6 py-14">
+      <PageHeader eyebrow="Admin" title="Create Ad" />
 
-      {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-red-700">{error}</div>}
+      {error && (
+        <div className="mb-6 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
+          {error}
+        </div>
+      )}
 
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form
+        onSubmit={onSubmit}
+        className="space-y-5 rounded-2xl border border-border-soft bg-surface p-6 shadow-soft sm:p-8"
+      >
         <div>
-          <label className="block text-sm font-medium">Advertiser Name</label>
-          <input className="mt-1 w-full rounded border p-2"
-                 value={advertiserName} onChange={(e) => setAdvertiserName(e.target.value)} />
+          <FormLabel htmlFor="ad-advertiser">Advertiser Name</FormLabel>
+          <Input
+            id="ad-advertiser"
+            value={advertiserName}
+            onChange={(e) => setAdvertiserName(e.target.value)}
+          />
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Destination URL</label>
-          <input className="mt-1 w-full rounded border p-2"
-                 value={destinationUrl} onChange={(e) => setDestinationUrl(e.target.value)} placeholder="https://…" />
+          <FormLabel htmlFor="ad-destination">Destination URL</FormLabel>
+          <Input
+            id="ad-destination"
+            value={destinationUrl}
+            onChange={(e) => setDestinationUrl(e.target.value)}
+            placeholder="https://…"
+          />
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Image URL (optional)</label>
-          <input className="mt-1 w-full rounded border p-2"
-                 value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://…" />
+          <FormLabel htmlFor="ad-image">Image URL (optional)</FormLabel>
+          <Input
+            id="ad-image"
+            value={imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
+            placeholder="https://…"
+          />
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Ad Content</label>
-          <textarea className="mt-1 w-full rounded border p-2 h-32"
-                    value={adContent} onChange={(e) => setAdContent(e.target.value)} />
+          <FormLabel htmlFor="ad-content">Ad Content</FormLabel>
+          <Textarea
+            id="ad-content"
+            rows={5}
+            value={adContent}
+            onChange={(e) => setAdContent(e.target.value)}
+          />
         </div>
 
-        <div className="flex gap-4 items-center">
+        <div className="flex flex-wrap items-end gap-6">
           <div>
-            <label className="block text-sm font-medium">Weight</label>
-            <input type="number" min={1} className="mt-1 w-24 rounded border p-2"
-                   value={weight} onChange={(e) => setWeight(parseInt(e.target.value || '1', 10))} />
+            <FormLabel htmlFor="ad-weight">Weight</FormLabel>
+            <Input
+              id="ad-weight"
+              type="number"
+              min={1}
+              className="w-28"
+              value={weight}
+              onChange={(e) => setWeight(parseInt(e.target.value || '1', 10))}
+            />
           </div>
-          <label className="inline-flex gap-2 items-center mt-6">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-            Active
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border-soft bg-surface-muted/60 px-4 py-2.5">
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+              className="h-4 w-4 accent-[var(--accent-primary)]"
+            />
+            <span className="text-sm text-text-light">Active</span>
           </label>
         </div>
 
-        <button disabled={saving}
-                className="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">
-          {saving ? 'Saving…' : 'Create Ad'}
-        </button>
+        <div className="border-t border-border-soft pt-5">
+          <Button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Create Ad'}
+          </Button>
+        </div>
       </form>
     </main>
   );

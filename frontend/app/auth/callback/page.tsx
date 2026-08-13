@@ -28,5 +28,13 @@ export default function AuthCallback() {
     })();
   }, [router]);
 
-  return <p className="p-6">Signing you in…</p>;
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
+      <span
+        aria-hidden="true"
+        className="h-8 w-8 animate-spin rounded-full border-2 border-border-strong border-t-primary"
+      />
+      <p className="text-sm text-text-light">Signing you in…</p>
+    </div>
+  );
 }

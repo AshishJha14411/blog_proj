@@ -29,12 +29,15 @@ vi.mock('@/stores/authStore', () => ({
   }),
 }));
 
-// 4. Mock the 'next/navigation' router
+// 4. Mock the 'next/navigation' router.
+//    usePathname is mocked too: the navbar reads it to highlight the active
+//    link and to close its menus on navigation.
 const mockRouterPush = vi.fn();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockRouterPush,
   }),
+  usePathname: () => '/',
 }));
 
 // 5. Mock the 'NotificationsBell' component to simplify the test

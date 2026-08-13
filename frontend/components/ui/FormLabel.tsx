@@ -1,15 +1,21 @@
 // components/ui/FormLabel.tsx
 import React from 'react';
 
+import { cn } from '@/lib/cn';
+
 type LabelProps = React.ComponentPropsWithoutRef<'label'> & {
   className?: string;
 };
 
 export default function FormLabel({ children, className, ...props }: LabelProps) {
-  const base = 'block text-sm font-medium text-text-light';
-  const merged = [base, className].filter(Boolean).join(' ');
   return (
-    <label {...props} className={merged}>
+    <label
+      {...props}
+      className={cn(
+        'block text-xs font-semibold uppercase tracking-[0.08em] text-text-subtle',
+        className,
+      )}
+    >
       {children}
     </label>
   );

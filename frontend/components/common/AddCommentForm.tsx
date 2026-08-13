@@ -36,8 +36,11 @@ export default function AddCommentForm({ postId, onCommentAdded }: AddCommentFor
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-8">
-      <h3 className="text-xl font-bold text-text mb-4">Add a Comment</h3>
+    <form
+      onSubmit={handleSubmit}
+      className="mt-8 rounded-2xl border border-border-soft bg-surface p-5 shadow-soft"
+    >
+      <h3 className="mb-4 font-display text-lg font-bold text-text">Add a Comment</h3>
       <Textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
@@ -45,9 +48,15 @@ export default function AddCommentForm({ postId, onCommentAdded }: AddCommentFor
         rows={4}
         required
         disabled={loading}
+        className="mt-0"
       />
-      {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
-      <div className="mt-4">
+      {error && (
+        <p className="mt-3 rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+          {error}
+        </p>
+      )}
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <span className="text-xs text-text-subtle">Be kind. Be specific.</span>
         <Button type="submit" disabled={loading}>
           {loading ? 'Posting...' : 'Post Comment'}
         </Button>

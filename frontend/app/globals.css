@@ -1,39 +1,597 @@
 @import "tailwindcss";
 
 /*
- * ESPRESSO & ROSEWATER THEME
- * A sophisticated theme that frames the light logo against a rich, warm background.
- * The dark espresso navbar provides perfect contrast, while the dusty rose accents
- * create a cohesive, elegant, and comfortable reading experience.
-*/
-:root {
-  /* Core Palette */
-  --nav-background: #3D352E;      /* Rich Espresso - The perfect warm, dark frame for the logo */
-  --page-background: #FDFBF8;     /* Warm Parchment - For the main body, easy on the eyes */
-  --accent-primary: #D9A6A3;         /* Muted Dusty Rose - A sophisticated primary accent for buttons */
-  --accent-primary-light: #EED7D5;   /* Lighter Rose for hover effects */
-  
-  /* Text Colors */
-  --text-main: #2A2420;           /* Dark Espresso - A warm, rich black for headings */
-  --text-body: #5C554E;           /* Warm Graphite - Softer brown-gray for paragraphs */
-  --text-subtle: #8D837A;         /* Muted Taupe - For subtitles, metadata */
-  --text-on-dark: #F5F3F1;        /* Soft off-white for text on the dark navbar */
+ * ============================================================================
+ * ESPRESSO & ROSEWATER — design system
+ * ============================================================================
+ *
+ * The palette is unchanged in spirit: warm parchment, rich espresso, dusty
+ * rose. What's new is (a) a full semantic token layer so components never
+ * hardcode a hex, (b) a dark mode that stays inside the same warm family —
+ * espresso browns, never neutral black — and (c) a small set of Aceternity-
+ * style effect utilities (grid/dot fields, aurora, spotlight, glass, animated
+ * borders) built on those same tokens so the flourishes read as part of the
+ * theme rather than bolted on.
+ *
+ * Dark mode is class-based (`<html class="dark">`), set by the inline script in
+ * app/layout.tsx before first paint. Nearly nothing needs a `dark:` variant —
+ * the tokens below flip and every utility built on them follows.
+ */
 
-  /* Border & UI Element Colors */
-  --border-color: #E5E0DA;        /* Soft, warm gray for borders */
-  --ui-background: #FFFFFF;        /* Pure white for cards or modals to stand out */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Used by the rotating conic border on .glow-border. Declaring it lets the
+   angle animate; without @property it's an unanimatable custom property. */
+@property --beam-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
 }
 
-/* @theme block for compatibility with some frameworks */
+/* ---------------------------------------------------------------------------
+ * 1. Raw palette + semantic tokens — LIGHT
+ * ------------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
+
+  /* Core palette (unchanged hexes from the original theme) */
+  --nav-background: #3d352e; /* Rich espresso */
+  --page-background: #fdfbf8; /* Warm parchment */
+  --accent-primary: #d9a6a3; /* Muted dusty rose */
+  --accent-primary-light: #eed7d5; /* Lighter rose — hovers */
+  --accent-strong: #b8817d; /* Rose deep enough for text/links on parchment */
+
+  /* Text */
+  --text-main: #2a2420;
+  --text-body: #5c554e;
+  --text-subtle: #8d837a;
+  --text-on-dark: #f5f3f1;
+  --text-on-accent: #2a2420; /* Espresso on rose: readable, unlike white */
+
+  /* Surfaces */
+  --ui-background: #ffffff; /* Cards, modals */
+  --surface-muted: #f6f1ea; /* Subtle inset panels, table headers */
+  --surface-sunken: #f1ebe3;
+
+  /* Lines & effects */
+  --border-color: #e5e0da;
+  --border-strong: #d6cec4;
+  --ring-color: rgb(217 166 163 / 0.5);
+  --grid-line: rgb(61 53 46 / 0.055);
+  --dot-color: rgb(61 53 46 / 0.09);
+  --glow-color: rgb(217 166 163 / 0.45);
+  --shadow-rgb: 61 53 46;
+  --glass-bg: rgb(255 255 255 / 0.72);
+  --nav-bg: rgb(61 53 46 / 0.9);
+  --aurora-1: rgb(217 166 163 / 0.5);
+  --aurora-2: rgb(238 215 213 / 0.6);
+  --aurora-3: rgb(61 53 46 / 0.12);
+  --skeleton-from: rgb(61 53 46 / 0.06);
+  --skeleton-to: rgb(61 53 46 / 0.12);
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. DARK — the same theme after sundown.
+ *
+ * Deliberately NOT a neutral dark theme: every "grey" here is an espresso
+ * brown mixed down from --nav-background, and the accent stays dusty rose,
+ * lifted just enough to hold contrast against a dark surface. The result reads
+ * as the same brand at low light rather than a second, colder skin.
+ * ------------------------------------------------------------------------ */
+.dark {
+  color-scheme: dark;
+
+  --nav-background: #221c18;
+  --page-background: #1a1613; /* Deep espresso, not black */
+  --accent-primary: #dfb2ae; /* Rose, lifted for contrast on dark */
+  --accent-primary-light: #ecc9c6;
+  --accent-strong: #e9c3bf;
+
+  --text-main: #f3ede7;
+  --text-body: #c8bdb3;
+  --text-subtle: #988c81;
+  --text-on-dark: #f5f3f1;
+  --text-on-accent: #241e19;
+
+  --ui-background: #241e1a; /* Cards sit *above* the page, warmly */
+  --surface-muted: #2b241f;
+  --surface-sunken: #17130f;
+
+  --border-color: #362e27;
+  --border-strong: #473d34;
+  --ring-color: rgb(223 178 174 / 0.45);
+  --grid-line: rgb(245 243 241 / 0.045);
+  --dot-color: rgb(245 243 241 / 0.07);
+  --glow-color: rgb(223 178 174 / 0.28);
+  --shadow-rgb: 0 0 0;
+  --glass-bg: rgb(36 30 26 / 0.72);
+  /* Sits a shade *above* the page, not level with it: at 82% of the page
+     colour the bar disappeared into the background and the header stopped
+     reading as a bar at all. */
+  --nav-bg: rgb(45 37 31 / 0.88);
+  --aurora-1: rgb(223 178 174 / 0.28);
+  --aurora-2: rgb(160 118 114 / 0.26);
+  --aurora-3: rgb(245 243 241 / 0.05);
+  --skeleton-from: rgb(245 243 241 / 0.05);
+  --skeleton-to: rgb(245 243 241 / 0.1);
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. @theme — ONLY names declared here become Tailwind utilities.
+ *    Values point at the tokens above, so `.dark` flipping a token flips every
+ *    utility built on it with no `dark:` variants at the call site.
+ * ------------------------------------------------------------------------ */
 @theme {
   --color-primary: var(--accent-primary);
   --color-primary-light: var(--accent-primary-light);
+  --color-primary-strong: var(--accent-strong);
+  --color-on-primary: var(--text-on-accent);
+
   --color-background: var(--page-background);
+  --color-background-alt: var(--ui-background); /* was referenced but never defined */
+  --color-surface: var(--ui-background);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-sunken: var(--surface-sunken);
+
   --color-text: var(--text-main);
   --color-text-light: var(--text-body);
-  
-  /* The secondary color can be the nav background */
+  --color-text-subtle: var(--text-subtle);
+  --color-on-dark: var(--text-on-dark);
+
   --color-secondary: var(--nav-background);
-  --color-secondary-light: #5C554E; 
+  --color-secondary-light: #5c554e;
+
+  --color-border-soft: var(--border-color);
+  --color-border-strong: var(--border-strong);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-display-serif), Georgia, "Times New Roman", serif;
+
+  --shadow-soft: 0 1px 2px rgb(var(--shadow-rgb) / 0.04),
+    0 8px 24px -12px rgb(var(--shadow-rgb) / 0.12);
+  --shadow-lift: 0 2px 4px rgb(var(--shadow-rgb) / 0.05),
+    0 18px 40px -20px rgb(var(--shadow-rgb) / 0.28);
+  --shadow-glow: 0 0 0 1px var(--glow-color), 0 18px 40px -22px var(--glow-color);
+
+  --animate-shimmer: shimmer 2.4s linear infinite;
+  --animate-beam: beam 5s linear infinite;
+  --animate-float: float 14s ease-in-out infinite;
+  --animate-rise: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -180% 0;
+  }
+  100% {
+    background-position: 180% 0;
+  }
+}
+
+@keyframes beam {
+  to {
+    --beam-angle: 360deg;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(3%, -4%, 0) scale(1.06);
+  }
+  66% {
+    transform: translate3d(-3%, 3%, 0) scale(0.96);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Base
+ * ------------------------------------------------------------------------ */
+@layer base {
+  * {
+    border-color: var(--border-color);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--page-background);
+    color: var(--text-body);
+    /* The Geist variables were loaded but never applied — `font-sans` resolved
+       to Tailwind's default stack. Now they actually render. */
+    font-family: var(--font-sans);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: var(--text-main);
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background-color: var(--accent-primary-light);
+    color: var(--text-main);
+  }
+
+  /* Warm, theme-coloured scrollbar rather than the OS default grey. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+    border: 2px solid var(--page-background);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-subtle);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 2px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Effect utilities — the Aceternity layer, tinted with our own tokens.
+ * ------------------------------------------------------------------------ */
+@layer components {
+  /* --- Ambient backgrounds ------------------------------------------------ */
+
+  .bg-grid {
+    background-image: linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  .bg-dots {
+    background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  /* Fades a pattern out toward the edges so it never fights the content. */
+  .mask-radial {
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%);
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%);
+  }
+
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+  }
+
+  /* Slow-drifting colour clouds behind a hero. Children are the blobs. */
+  .aurora {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .aurora::before,
+  .aurora::after {
+    content: "";
+    position: absolute;
+    width: 42rem;
+    height: 42rem;
+    border-radius: 999px;
+    filter: blur(72px);
+    animation: var(--animate-float);
+  }
+  .aurora::before {
+    top: -16rem;
+    left: -10rem;
+    background: radial-gradient(circle at center, var(--aurora-1), transparent 68%);
+  }
+  .aurora::after {
+    top: -22rem;
+    right: -12rem;
+    background: radial-gradient(circle at center, var(--aurora-2), transparent 68%);
+    animation-delay: -6s;
+  }
+
+  /* --- Surfaces ----------------------------------------------------------- */
+
+  .glass {
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+  }
+
+  .surface-card {
+    background-color: var(--ui-background);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-soft);
+  }
+
+  /*
+   * Cursor-tracked highlight. The component sets --spot-x/--spot-y on
+   * pointermove; with no JS (SSR, reduced motion, touch) the layer simply
+   * stays at its 50%/0% default and the card is still a good-looking card.
+   */
+  .spotlight {
+    position: relative;
+    isolation: isolate;
+  }
+  .spotlight::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      22rem circle at var(--spot-x, 50%) var(--spot-y, 0%),
+      var(--glow-color),
+      transparent 62%
+    );
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+    z-index: -1;
+  }
+  .spotlight:hover::before,
+  .spotlight:focus-within::before {
+    opacity: 1;
+  }
+
+  /* Hairline that brightens on hover — the Aceternity card edge, in rose. */
+  .edge-glow {
+    position: relative;
+  }
+  .edge-glow::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      140deg,
+      var(--accent-primary),
+      transparent 40%,
+      transparent 60%,
+      var(--accent-primary)
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+  }
+  .edge-glow:hover::after,
+  .edge-glow:focus-within::after {
+    opacity: 0.75;
+  }
+
+  /*
+   * Rotating conic border for the one or two elements that deserve it.
+   *
+   * NOTE: deliberately NO `isolation: isolate` here (unlike .spotlight). A
+   * negative-z-index pseudo-element paints *above* its parent's own background
+   * once the parent forms a stacking context — which would drop the beam on
+   * top of the button fill instead of leaving it as a ring around the edge.
+   */
+  .glow-border {
+    position: relative;
+  }
+  .glow-border::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: conic-gradient(
+      from var(--beam-angle),
+      transparent 0deg 200deg,
+      var(--accent-primary) 300deg,
+      transparent 360deg
+    );
+    animation: var(--animate-beam);
+    z-index: -1;
+  }
+
+  /* --- Text & motion ------------------------------------------------------ */
+
+  .text-gradient {
+    background-image: linear-gradient(
+      120deg,
+      var(--text-main) 0%,
+      var(--accent-strong) 55%,
+      var(--text-main) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .shimmer-text {
+    background-image: linear-gradient(
+      100deg,
+      var(--text-subtle) 40%,
+      var(--accent-strong) 50%,
+      var(--text-subtle) 60%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: var(--animate-shimmer);
+  }
+
+  .skeleton {
+    background-image: linear-gradient(
+      90deg,
+      var(--skeleton-from) 25%,
+      var(--skeleton-to) 37%,
+      var(--skeleton-from) 63%
+    );
+    background-size: 400% 100%;
+    animation: var(--animate-shimmer);
+    border-radius: 0.5rem;
+  }
+
+  /* Staggered entrance for grids/lists. */
+  .rise-in {
+    animation: var(--animate-rise);
+  }
+
+  /* --- Reading surface ----------------------------------------------------
+   * The app renders story HTML with `prose` classes, but @tailwindcss/typography
+   * isn't installed — those classes were inert and articles rendered as
+   * unstyled HTML. This is the replacement, themed rather than generic.
+   * -------------------------------------------------------------------- */
+  .prose-story {
+    color: var(--text-body);
+    font-size: 1.0625rem;
+    line-height: 1.85;
+  }
+  .prose-story > * + * {
+    margin-top: 1.25em;
+  }
+  .prose-story h1,
+  .prose-story h2,
+  .prose-story h3,
+  .prose-story h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    margin-top: 2em;
+    margin-bottom: 0.6em;
+  }
+  .prose-story h1 {
+    font-size: 2rem;
+  }
+  .prose-story h2 {
+    font-size: 1.6rem;
+  }
+  .prose-story h3 {
+    font-size: 1.3rem;
+  }
+  .prose-story p {
+    text-wrap: pretty;
+  }
+  .prose-story a {
+    color: var(--accent-strong);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  .prose-story strong {
+    color: var(--text-main);
+    font-weight: 650;
+  }
+  .prose-story em {
+    font-style: italic;
+  }
+  .prose-story ul,
+  .prose-story ol {
+    padding-left: 1.4em;
+  }
+  .prose-story ul {
+    list-style: disc;
+  }
+  .prose-story ol {
+    list-style: decimal;
+  }
+  .prose-story li + li {
+    margin-top: 0.4em;
+  }
+  .prose-story li::marker {
+    color: var(--accent-strong);
+  }
+  .prose-story blockquote {
+    border-left: 2px solid var(--accent-primary);
+    padding: 0.2em 0 0.2em 1.25em;
+    color: var(--text-main);
+    font-family: var(--font-display);
+    font-size: 1.15em;
+    font-style: italic;
+  }
+  .prose-story code {
+    background: var(--surface-muted);
+    border: 1px solid var(--border-color);
+    border-radius: 0.35rem;
+    padding: 0.12em 0.38em;
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+  .prose-story pre {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+  }
+  .prose-story pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+  }
+  .prose-story img {
+    border-radius: 0.9rem;
+    border: 1px solid var(--border-color);
+    max-width: 100%;
+    height: auto;
+  }
+  .prose-story hr {
+    border: 0;
+    border-top: 1px solid var(--border-color);
+    margin: 2.5em 0;
+  }
+  .prose-story--compact {
+    font-size: 0.95rem;
+    line-height: 1.7;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Respect the user's motion preference — the drifting aurora and rotating
+ *    borders are decoration, and decoration is the first thing to go.
+ * ------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

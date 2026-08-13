@@ -185,6 +185,159 @@ database and coexist — FastAPI runs sync routes in a threadpool.
 
 ### Database design
 
+#### Core schema
+
+The content graph, with columns. Reproduced from the live database, not from
+the models — the two agree, but the database is the authority.
+
+Two omissions, both for readability: peripheral tables (ads, webhooks,
+audit/error logs, credential tables) are summarised in the table below rather
+than drawn, and `users`/`stories` show their meaningful columns rather than
+every one — the denormalised counters (`total_posts`, `total_likes`,
+`total_comments`) and audit timestamps are left out. Nothing shown here is
+approximate: every column, type and constraint below was read back from
+production.
+
+```mermaid
+erDiagram
+    ROLES {
+        uuid id PK
+        varchar name UK "user / creator / moderator / superadmin"
+        varchar description
+    }
+    USERS {
+        uuid id PK
+        varchar email UK
+        varchar username UK
+        varchar password_hash
+        uuid role_id FK
+        boolean is_verified
+        boolean is_disabled "soft delete"
+        json social_links
+        timestamptz last_login_at
+        timestamp created_at
+    }
+    STORIES {
+        uuid id PK
+        uuid user_id FK
+        varchar title
+        text content
+        boolean is_published
+        enum status "draft / generated / pending / published / rejected"
+        enum source "user / ai"
+        boolean is_flagged
+        enum flag_source
+        varchar genre "indexed - also becomes the tag"
+        varchar tone
+        enum length_label
+        text prompt "AI generation input"
+        varchar model_name
+        float temperature
+        integer version "AI revision counter"
+        uuid parent_id FK "self-ref"
+        integer row_version "optimistic lock"
+        tsvector search_vector "GENERATED + GIN"
+        timestamp deleted_at "soft delete"
+        timestamp created_at
+    }
+    TAGS {
+        uuid id PK
+        varchar name UK
+        varchar description
+    }
+    STORY_TAGS {
+        uuid stories_id PK "FK to stories - note the plural"
+        uuid tag_id PK "FK to tags"
+    }
+    COMMENTS {
+        uuid id PK
+        uuid user_id FK
+        uuid story_id FK
+        text content
+        timestamp created_at
+    }
+    LIKES {
+        uuid id PK
+        uuid user_id FK "UNIQUE with story_id"
+        uuid story_id FK
+        timestamp created_at
+    }
+    BOOKMARKS {
+        uuid id PK
+        uuid user_id FK "UNIQUE with story_id"
+        uuid story_id FK
+        timestamp created_at
+    }
+    STORY_REVISIONS {
+        uuid id PK
+        uuid stories_id FK
+        uuid user_id FK
+        integer version
+        text content
+        text prompt
+        text feedback
+        varchar provider_message_id
+    }
+    FLAGS {
+        uuid id PK
+        uuid flagged_by_user_id FK
+        uuid story_id FK "nullable"
+        uuid comment_id FK "nullable"
+        text reason
+        varchar status "open | resolved"
+        uuid resolved_by FK
+    }
+    NOTIFICATIONS {
+        uuid id PK
+        uuid recipient_id FK
+        uuid actor_id FK "nullable"
+        varchar action
+        varchar target_type
+        uuid target_id
+        boolean is_read
+    }
+
+    ROLES    ||--o{ USERS           : grants
+    USERS    ||--o{ STORIES         : authors
+    USERS    ||--o{ COMMENTS        : writes
+    USERS    ||--o{ LIKES           : gives
+    USERS    ||--o{ BOOKMARKS       : saves
+    USERS    ||--o{ NOTIFICATIONS   : receives
+    USERS    ||--o{ FLAGS           : raises
+    STORIES  ||--o{ COMMENTS        : has
+    STORIES  ||--o{ LIKES           : has
+    STORIES  ||--o{ BOOKMARKS       : has
+    STORIES  ||--o{ STORY_REVISIONS : versions
+    STORIES  ||--o{ FLAGS           : reported
+    COMMENTS ||--o{ FLAGS           : reported
+    STORIES  ||--o{ STORIES         : "parent_id"
+    STORIES  ||--o{ STORY_TAGS      : tagged
+    TAGS     ||--o{ STORY_TAGS      : labels
+```
+
+**Constraints that carry real weight** (verified against production):
+
+| Constraint | Where | Why it exists |
+|---|---|---|
+| `UNIQUE (user_id, story_id)` | `likes`, `bookmarks` | "One like per user per story" is enforced by the database, not by a read-then-write in application code that two concurrent requests can both pass |
+| `UNIQUE (provider, subject)` | `oauth_accounts` | One Google identity maps to exactly one account |
+| `UNIQUE (jti)` | `token_blacklist` | The arbiter for refresh-token rotation — the loser of a concurrent refresh hits this index and gets a `401` instead of both requests succeeding |
+| `PRIMARY KEY (stories_id, tag_id)` | `story_tags` | Composite PK; a story can't carry the same tag twice |
+| `UNIQUE (name)` | `tags` | Tag names are cleaned before insert so casing alone can't create a near-duplicate row |
+| `UNIQUE (email)`, `UNIQUE (username)` | `users` | Unique **indexes** rather than table constraints — `information_schema.table_constraints` won't show them; check `pg_indexes` |
+
+**Indexes on `stories`:** `search_vector` (GIN), plus btree on `user_id`,
+`status`, `source`, `is_published`, `deleted_at`, `genre`, `tone`.
+
+> **Naming inconsistency, deliberately left alone:** `story_tags` and
+> `story_revisions` use **`stories_id`** where every other table uses
+> `story_id`. It follows the table name rather than the entity. Renaming it
+> would be a migration plus a code sweep for no functional gain, so it's
+> documented instead of quietly fixed — worth knowing before writing raw SQL
+> against either table.
+
+#### All tables
+
 | Table | Purpose | Notable |
 |---|---|---|
 | `users` | Accounts | unique `email`/`username`; `is_disabled` soft delete; FK → `roles` |

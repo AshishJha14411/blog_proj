@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import Link from 'next/link';
 import PostCard from '@/components/common/PostCard'; // We are reusing the smart PostCard
+import EmptyState from '@/components/ui/EmptyState';
+import PageHeader from '@/components/ui/PageHeader';
+import { CardGridSkeleton } from '@/components/ui/Skeleton';
 import { useHydratedAuth } from '@/hooks/useHydratedAuth';
 import { useRouter } from 'next/navigation';
 import { useMyStories } from '@/hooks/queries';
@@ -19,22 +23,58 @@ export default function MyPostsPage() {
     if (isHydrated && !isAuthenticated) router.push('/login');
   }, [isHydrated, isAuthenticated, router]);
 
-  if (!isHydrated || (isAuthenticated && isLoading)) {
-    return <p className="p-8 text-center">Loading your stories...</p>;
-  }
+  const published = posts.filter((p) => p.is_published).length;
 
   return (
-    <main className="mx-auto max-w-5xl p-8 font-sans">
-      <h1 className="mb-8 text-3xl font-bold text-text">My Stories</h1>
-      <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-        {posts.length > 0 ? (
-          posts.map((post) => <PostCard key={post.id} post={post} />)
-        ) : (
-          <p className="col-span-full text-center text-text-light">
-            You haven&apos;t created any posts yet.
-          </p>
-        )}
-      </div>
+    <main className="mx-auto max-w-6xl px-6 py-14 font-sans">
+      <PageHeader
+        eyebrow="Your work"
+        title="My Stories"
+        description={
+          posts.length > 0
+            ? `${posts.length} ${posts.length === 1 ? 'story' : 'stories'} · ${published} published`
+            : 'Drafts and published stories, all in one place.'
+        }
+        actions={
+          <Link
+            href="/userStory/create"
+            className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary transition-all hover:-translate-y-0.5 hover:bg-primary-light"
+          >
+            New story
+          </Link>
+        }
+      />
+
+      {!isHydrated || (isAuthenticated && isLoading) ? (
+        <CardGridSkeleton count={3} />
+      ) : posts.length > 0 ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {posts.map((post) => (
+            <PostCard key={post.id} post={post} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="Nothing written yet"
+          description="You haven't created any posts yet. Start from a blank page, or let AI draft the first version."
+          action={
+            <div className="flex flex-wrap justify-center gap-3">
+              <Link
+                href="/userStory/create"
+                className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary transition-colors hover:bg-primary-light"
+              >
+                Write from scratch
+              </Link>
+              <Link
+                href="/stories/generate"
+                className="rounded-full border border-border-strong px-5 py-2.5 text-sm font-medium text-text transition-colors hover:border-primary/50 hover:text-primary-strong"
+              >
+                Write with AI
+              </Link>
+            </div>
+          }
+        />
+      )}
     </main>
   );
 }

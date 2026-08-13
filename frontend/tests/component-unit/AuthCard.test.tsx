@@ -40,8 +40,10 @@ describe('AuthCard', () => {
     expect(card).toBeInTheDocument();
     if (!card) return;
 
-    expect(card.className).toContain('rounded-lg');
-    expect(card.className).toContain('shadow-md');
+    // Radius/shadow tokens moved with the UI revamp (rounded-lg + shadow-md →
+    // rounded-2xl + the theme's shadow-lift); the structure they guard didn't.
+    expect(card.className).toContain('rounded-2xl');
+    expect(card.className).toContain('shadow-lift');
     expect(card.className).toContain('p-8');
     expect(card.className).toContain('max-w-md');
   });

@@ -36,12 +36,28 @@ export default function PostActions({ postAuthorId, postId, isAI }: PostActionsP
   if (canModify) {
     return (
       <div className="flex gap-2">
-         {isAI ? (
-        <Link href={`/stories/${postId}/edit`} className="rounded border px-3 py-1">Edit</Link>
-      ) : (
-        <Link href={`/userStory/${postId}/edit`} className="rounded border px-3 py-1">Edit</Link>
-      )}
-        <button onClick={handleDelete} className="rounded-md bg-red-500 px-3 py-1 text-sm text-white">
+        <Link
+          href={isAI ? `/stories/${postId}/edit` : `/userStory/${postId}/edit`}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface px-4 py-1.5 text-sm font-medium text-text transition-colors hover:border-primary/40 hover:text-primary-strong"
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-3.5 w-3.5"
+          >
+            <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg>
+          Edit
+        </Link>
+        <button
+          onClick={handleDelete}
+          className="inline-flex items-center gap-1.5 rounded-full border border-red-500/25 bg-red-500/10 px-4 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-500/20 dark:text-red-300"
+        >
           Delete
         </button>
       </div>

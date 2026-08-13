@@ -112,23 +112,36 @@ export default function NotificationsBell() {
     <div className="relative" ref={rootRef}>
       <button
         onClick={() => setOpen((s) => !s)}
-        className="relative rounded p-2 hover:bg-gray-100"
+        className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-on-dark/80 transition-colors hover:border-primary/40 hover:bg-white/10 hover:text-primary"
         aria-label="Notifications"
+        aria-expanded={open}
       >
-        🔔
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.7}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-[18px] w-[18px]"
+        >
+          <path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7" />
+          <path d="M13.7 20a2 2 0 0 1-3.4 0" />
+        </svg>
         {unread > 0 && (
-          <span className="absolute -top-1 -right-1 rounded-full bg-red-500 text-white text-xs px-1">
+          <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-on-primary ring-2 ring-[var(--nav-background)]">
             {unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 rounded border bg-white shadow z-50">
-          <div className="flex items-center justify-between p-2 border-b">
-            <div className="font-medium">Notifications</div>
+        <div className="rise-in absolute right-0 z-50 mt-3 w-80 overflow-hidden rounded-2xl border border-border-soft bg-surface shadow-lift">
+          <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
+            <div className="text-sm font-semibold text-text">Notifications</div>
             <button
-              className="text-xs underline"
+              className="text-xs font-medium text-primary-strong transition-colors hover:underline"
               onClick={async () => {
                 setItems((prev) => prev.map((x) => ({ ...x, is_read: true })));
                 try {
@@ -144,32 +157,52 @@ export default function NotificationsBell() {
           </div>
 
           {loading ? (
-            <div className="p-3 text-sm text-gray-500">Loading…</div>
+            <div className="space-y-2 p-4">
+              <div className="skeleton h-3 w-2/3" />
+              <div className="skeleton h-3 w-1/2" />
+            </div>
           ) : items.length === 0 ? (
-            <div className="p-3 text-sm text-gray-500">You&apos;re all caught up.</div>
+            <div className="px-4 py-8 text-center text-sm text-text-subtle">
+              You&apos;re all caught up.
+            </div>
           ) : (
             <ul className="max-h-96 overflow-y-auto">
               {items.map((n) => (
                 <li
                   key={n.id}
-                  className="p-3 border-b hover:bg-gray-50 cursor-pointer"
+                  className="cursor-pointer border-b border-border-soft px-4 py-3 transition-colors last:border-b-0 hover:bg-primary/8"
                   onClick={() => onClickItem(n)}
                 >
-                  <div className="text-sm">
-                    <span className={!n.is_read ? "font-semibold" : ""}>
-                      {(n.action ?? "").replaceAll("_", " ")}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {new Date(n.created_at).toLocaleString()}
+                  <div className="flex items-start gap-2.5">
+                    {/* Unread marker: a rose dot instead of a colour-only cue
+                        buried in the text weight. */}
+                    <span
+                      aria-hidden="true"
+                      className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                        !n.is_read ? 'bg-primary' : 'bg-transparent'
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm capitalize">
+                        <span className={!n.is_read ? "font-semibold text-text" : "text-text-light"}>
+                          {(n.action ?? "").replaceAll("_", " ")}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-xs text-text-subtle">
+                        {new Date(n.created_at).toLocaleString()}
+                      </div>
+                    </div>
                   </div>
                 </li>
               ))}
             </ul>
           )}
 
-          <div className="p-2 text-right">
-            <Link href="/notifications" className="text-xs underline">
+          <div className="border-t border-border-soft px-4 py-2.5 text-right">
+            <Link
+              href="/notifications"
+              className="text-xs font-medium text-primary-strong transition-colors hover:underline"
+            >
               View all
             </Link>
           </div>

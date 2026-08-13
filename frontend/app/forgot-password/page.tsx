@@ -31,22 +31,31 @@ export default function ForgotPasswordPage() {
     };
 
     return (
-        <AuthCard title="Reset Your Password">
+        <AuthCard
+            title="Reset Your Password"
+            subtitle="We'll email you a link to set a new one."
+        >
             {message ? (
                 <div className="text-center">
-                    <p className="text-green-600">{message}</p>
-                    <Link href="/login" className="mt-4 inline-block text-sm text-[var(--accent-primary)] hover:underline">
+                    <p className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
+                        {message}
+                    </p>
+                    <Link href="/login" className="mt-6 inline-block text-sm font-medium text-primary-strong hover:underline">
                         Back to Login
                     </Link>
                 </div>
             ) : (
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <p className="text-sm text-gray-600">Enter your email address and we will send you a link to reset your password.</p>
+                <form onSubmit={handleSubmit} className="space-y-5">
                     <div>
                         <FormLabel htmlFor="email">Email Address</FormLabel>
-                        <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} disabled={loading} />
+                        <Input id="email" type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={loading} />
                     </div>
-                    <Button type="submit" disabled={loading}>{loading ? 'Sending Link...' : 'Send Reset Link'}</Button>
+                    <Button type="submit" disabled={loading} className="w-full">{loading ? 'Sending Link...' : 'Send Reset Link'}</Button>
+                    <p className="text-center text-sm text-text-light">
+                        <Link href="/login" className="font-medium text-primary-strong hover:underline">
+                            Back to Login
+                        </Link>
+                    </p>
                 </form>
             )}
         </AuthCard>
