@@ -48,28 +48,34 @@ export default function ChangePasswordPage() {
     };
 
     return (
-        <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
-            <AuthCard title="Change Your Password">
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <FormLabel htmlFor="old-password">Current Password</FormLabel>
-                        <Input id="old-password" type="password" required value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} />
-                    </div>
-                    <div>
-                        <FormLabel htmlFor="new-password">New Password</FormLabel>
-                        <Input id="new-password" type="password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-                    </div>
-                    <div>
-                        <FormLabel htmlFor="confirm-password">Confirm New Password</FormLabel>
-                        <Input id="confirm-password" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
-                    </div>
-                    {error && <p className="text-sm text-red-500">{error}</p>}
-                    {success && <p className="text-sm text-green-500">{success}</p>}
-                    <div className="pt-2">
-                        <Button type="submit" disabled={loading}>{loading ? 'Saving...' : 'Save New Password'}</Button>
-                    </div>
-                </form>
-            </AuthCard>
-        </div>
+        // AuthCard already centres itself in a full-height frame; the extra
+        // wrapper used to add a second one and pushed the card off-centre.
+        <AuthCard title="Change Your Password" subtitle="You'll stay signed in on this device.">
+            <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
+                    <FormLabel htmlFor="old-password">Current Password</FormLabel>
+                    <Input id="old-password" type="password" required autoComplete="current-password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} />
+                </div>
+                <div>
+                    <FormLabel htmlFor="new-password">New Password</FormLabel>
+                    <Input id="new-password" type="password" required minLength={8} autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                </div>
+                <div>
+                    <FormLabel htmlFor="confirm-password">Confirm New Password</FormLabel>
+                    <Input id="confirm-password" type="password" required minLength={8} autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+                </div>
+                {error && (
+                    <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+                        {error}
+                    </p>
+                )}
+                {success && (
+                    <p className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+                        {success}
+                    </p>
+                )}
+                <Button type="submit" disabled={loading} className="w-full">{loading ? 'Saving...' : 'Save New Password'}</Button>
+            </form>
+        </AuthCard>
     );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import axios from 'axios';
 import { signupUser } from '@/services/authService';
@@ -54,14 +55,16 @@ export default function SignupForm() {
   };
 
   return (
-    <AuthCard title="Create Account">
-      <form className="space-y-6" onSubmit={handleSubmit}>
+    <AuthCard title="Create Account" subtitle="Start reading, writing, and publishing.">
+      <form className="space-y-5" onSubmit={handleSubmit}>
         <div>
           <FormLabel htmlFor="email">Email Address</FormLabel>
           <Input
             id="email"
             type="email"
             required
+            autoComplete="email"
+            placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={loading} // <-- Disable on load
@@ -73,6 +76,8 @@ export default function SignupForm() {
             id="username"
             type="text"
             required
+            autoComplete="username"
+            placeholder="yourhandle"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             disabled={loading} // <-- Disable on load
@@ -84,21 +89,29 @@ export default function SignupForm() {
             id="password"
             type="password"
             required
+            autoComplete="new-password"
+            placeholder="At least 8 characters"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading} // <-- Disable on load
           />
         </div>
-        {error && <p className="text-sm text-red-500">{error}</p>}
-        <div className='flex justify-center'>
-          <Button type="submit" disabled={loading}>
-            {loading ? "Creating Account..." : "Sign Up"}
-          </Button>
-        </div>
+        {error && (
+          <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+            {error}
+          </p>
+        )}
+        <Button type="submit" disabled={loading} className="w-full">
+          {loading ? "Creating Account..." : "Sign Up"}
+        </Button>
       </form>
-      {/* <div className='flex justify-center'>
-        <GoogleLoginButton />
-      </div> */}
+
+      <p className="mt-6 text-center text-sm text-text-light">
+        Already have an account?{' '}
+        <Link href="/login" className="font-medium text-primary-strong hover:underline">
+          Log in
+        </Link>
+      </p>
     </AuthCard>
   );
 }

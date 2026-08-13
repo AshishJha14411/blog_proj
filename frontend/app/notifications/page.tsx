@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import EmptyState from "@/components/ui/EmptyState";
+import PageHeader from "@/components/ui/PageHeader";
 import { markRead } from "@/services/notificationService";
 import { useNotifications } from "@/hooks/queries";
 
@@ -25,44 +27,83 @@ export default function NotificationsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
 
+  const pagerButton =
+    'rounded-full border border-border-soft bg-surface px-4 py-2 text-sm font-medium text-text transition-colors hover:border-primary/40 hover:text-primary-strong disabled:cursor-not-allowed disabled:opacity-45';
+
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <h1 className="text-2xl font-semibold mb-4">Notifications</h1>
+    <main className="mx-auto max-w-3xl px-6 py-14">
+      <PageHeader eyebrow="Activity" title="Notifications" />
+
       {isError && (
-        <div className="mb-4 rounded border border-red-300 bg-red-50 p-2 text-sm text-red-700">
+        <div className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
           Couldn&apos;t load notifications. Please try again in a moment.
         </div>
       )}
+
       {items.length === 0 ? (
-        <div className="text-gray-500">No notifications.</div>
+        <EmptyState
+          title="Nothing new"
+          description="Likes, comments and moderation updates on your stories show up here."
+        />
       ) : (
         <ul className="space-y-3">
           {items.map((n) => (
-            <li key={n.id} className="border rounded p-3">
-              <div className="flex justify-between">
+            <li
+              key={n.id}
+              className={`flex items-start gap-3 rounded-2xl border bg-surface px-4 py-3.5 shadow-soft transition-colors ${
+                n.is_read ? 'border-border-soft' : 'border-primary/30'
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                  n.is_read ? 'bg-border-strong' : 'bg-primary'
+                }`}
+              />
+              <div className="min-w-0 flex-1">
                 {/* F11: guard against server sending a null action */}
-                <div className={!n.is_read ? "font-medium" : ""}>{(n.action ?? "").replaceAll("_", " ")}</div>
-                {!n.is_read && (
-                  <button
-                    className="text-xs underline disabled:opacity-50"
-                    disabled={markReadMutation.isPending}
-                    onClick={() => markReadMutation.mutate(n.id)}
-                  >
-                    Mark read
-                  </button>
-                )}
+                <div className={`capitalize ${n.is_read ? 'text-text-light' : 'font-medium text-text'}`}>
+                  {(n.action ?? "").replaceAll("_", " ")}
+                </div>
+                <div className="mt-1 text-xs text-text-subtle">
+                  {new Date(n.created_at).toLocaleString()}
+                </div>
               </div>
-              <div className="text-xs text-gray-500 mt-1">{new Date(n.created_at).toLocaleString()}</div>
+              {!n.is_read && (
+                <button
+                  className="shrink-0 rounded-full px-3 py-1 text-xs font-medium text-primary-strong transition-colors hover:bg-primary/10 disabled:opacity-50"
+                  disabled={markReadMutation.isPending}
+                  onClick={() => markReadMutation.mutate(n.id)}
+                >
+                  Mark read
+                </button>
+              )}
             </li>
           ))}
         </ul>
       )}
 
-      <div className="mt-4 flex justify-between">
-        <button className="rounded border px-3 py-1" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>Prev</button>
-        <div>Showing {total === 0 ? 0 : offset + 1}-{Math.min(offset + limit, total)} of {total}</div>
-        <button className="rounded border px-3 py-1" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>Next</button>
-      </div>
+      {total > 0 && (
+        <div className="mt-8 flex items-center justify-between gap-4">
+          <button
+            className={pagerButton}
+            disabled={offset === 0}
+            onClick={() => setOffset(Math.max(0, offset - limit))}
+          >
+            ← Prev
+          </button>
+          <div className="text-sm text-text-subtle">
+            Showing {total === 0 ? 0 : offset + 1}-{Math.min(offset + limit, total)} of {total}
+          </div>
+          <button
+            className={pagerButton}
+            disabled={offset + limit >= total}
+            onClick={() => setOffset(offset + limit)}
+          >
+            Next →
+          </button>
+        </div>
+      )}
     </main>
   );
 }

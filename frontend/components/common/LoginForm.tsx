@@ -51,43 +51,71 @@ const handleSubmit = async (event: React.FormEvent) => {
 
 
   return (
-    <AuthCard title="Log In">
-      <form className="space-y-6" onSubmit={handleSubmit} aria-busy={loading ? 'true' : undefined /* Added for happy path login form test */}>
+    <AuthCard title="Log In" subtitle="Pick up where you left off.">
+      <form className="space-y-5" onSubmit={handleSubmit} aria-busy={loading ? 'true' : undefined /* Added for happy path login form test */}>
         <div>
           <FormLabel htmlFor="username">Username</FormLabel>
           <Input
             id="username"
             type="text"
             required
+            autoComplete="username"
+            placeholder="yourhandle"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             disabled={loading}
           />
         </div>
         <div>
-          <FormLabel htmlFor="password">Password</FormLabel>
+          <div className="flex items-baseline justify-between">
+            <FormLabel htmlFor="password">Password</FormLabel>
+            <Link
+              href="/forgot-password"
+              className="text-xs font-medium text-primary-strong transition-colors hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <Input
             id="password"
             type="password"
             required
+            autoComplete="current-password"
+            placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
           />
         </div>
-        <Link href="/forgot-password">
-          <p className="text-sm my-4 hover:underline"> Forgot Password ?</p>
-        </Link>
-        {error && <p className="text-sm text-red-500">{error}</p>}
-        <div className="flex justify-center">
-          <Button type="submit" disabled={loading} aria-busy={loading ? 'true' : undefined /* Added for happy path login form test */}>
-            {loading ? 'Signing in...' : 'Sign in'}
-          </Button>
-        </div>
+        {error && (
+          <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+            {error}
+          </p>
+        )}
+        <Button
+          type="submit"
+          disabled={loading}
+          className="w-full"
+          aria-busy={loading ? 'true' : undefined /* Added for happy path login form test */}
+        >
+          {loading ? 'Signing in...' : 'Sign in'}
+        </Button>
       </form>
-      <div className="flex justify-center">
-        <GoogleLoginButton />
+
+      <div className="my-6 flex items-center gap-3">
+        <span className="h-px flex-1 bg-border-soft" />
+        <span className="text-xs uppercase tracking-[0.14em] text-text-subtle">or</span>
+        <span className="h-px flex-1 bg-border-soft" />
       </div>
+
+      <GoogleLoginButton />
+
+      <p className="mt-6 text-center text-sm text-text-light">
+        New here?{' '}
+        <Link href="/signup" className="font-medium text-primary-strong hover:underline">
+          Create an account
+        </Link>
+      </p>
     </AuthCard>
   );
 }

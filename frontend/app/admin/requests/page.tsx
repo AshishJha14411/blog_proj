@@ -4,7 +4,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { getPendingCreatorRequests, reviewCreatorRequest, CreatorRequest } from '@/services/adminService';
+import Avatar from '@/components/ui/Avatar';
 import Button from '@/components/ui/Button';
+import EmptyState from '@/components/ui/EmptyState';
+import PageHeader from '@/components/ui/PageHeader';
 
 export default function AdminCreatorRequestQueuePage() {
   const { user, isHydrated } = useAuth();
@@ -75,36 +78,50 @@ export default function AdminCreatorRequestQueuePage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-6 text-[var(--text-main)]">
-        Creator Request Queue
-      </h1>
-      {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
+    <main className="mx-auto max-w-4xl px-6 py-14">
+      <PageHeader
+        eyebrow="Admin"
+        title="Creator Request Queue"
+        description="Readers asking for permission to publish."
+      />
+
+      {error && (
+        <p className="mb-6 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
+          {error}
+        </p>
+      )}
+
       {requests.length === 0 ? (
-        <p className="text-[var(--text-subtle)]">No pending requests.</p>
+        <EmptyState
+          title="No pending requests"
+          description="New creator applications land here as they come in."
+        />
       ) : (
         <div className="space-y-4">
           {requests.map(req => (
             <div
               key={req.id}
-              className="p-4 border border-[var(--border-color)] rounded-lg bg-white flex justify-between items-center"
+              className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border-soft bg-surface p-5 shadow-soft"
             >
-              <div>
-                <p className="font-semibold text-[var(--text-main)]">
-                  {req.user.username}
-                </p>
-                <p className="text-sm text-[var(--text-subtle)] mt-1">
-                  {req.reason || 'No reason provided.'}
-                </p>
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar name={req.user.username} size="md" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-text">{req.user.username}</p>
+                  <p className="mt-0.5 text-sm text-text-light">
+                    {req.reason || 'No reason provided.'}
+                  </p>
+                </div>
               </div>
               <div className="flex gap-2">
-                <Button onClick={() => handleReview(req.id, 'approve')}>Approve</Button>
-                <Button onClick={() => handleReview(req.id, 'reject')}>Reject</Button>
+                <Button size="sm" onClick={() => handleReview(req.id, 'approve')}>Approve</Button>
+                <Button size="sm" variant="secondary" onClick={() => handleReview(req.id, 'reject')}>
+                  Reject
+                </Button>
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </main>
   );
 }

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import PageHeader from "@/components/ui/PageHeader";
 import {
   getClicksDaily,
   getFlagsBreakdown,
@@ -49,36 +50,42 @@ export default function AdminAnalyticsPage() {
   if (!isMod) return null;
 
   return (
-    <main className="mx-auto max-w-6xl p-6 space-y-8">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Analytics</h1>
-          <p className="text-sm text-gray-500">Platform activity over the last {days} days.</p>
-        </div>
-        <div className="flex gap-1 rounded-lg border p-1">
-          {RANGES.map((r) => (
-            <button
-              key={r}
-              onClick={() => setDays(r)}
-              className={`rounded-md px-3 py-1.5 text-sm transition ${
-                days === r ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              {r}d
-            </button>
-          ))}
-        </div>
-      </header>
+    <main className="mx-auto max-w-6xl space-y-8 px-6 py-14">
+      <PageHeader
+        eyebrow="Admin"
+        title="Analytics"
+        description={`Platform activity over the last ${days} days.`}
+        actions={
+          <div className="flex gap-1 rounded-full border border-border-soft bg-surface p-1">
+            {RANGES.map((r) => (
+              <button
+                key={r}
+                onClick={() => setDays(r)}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                  days === r
+                    ? "bg-primary text-on-primary"
+                    : "text-text-light hover:bg-surface-muted hover:text-text"
+                }`}
+              >
+                {r}d
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-2xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
           Couldn&apos;t load analytics: {(error as Error).message}
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      {/* Clicks were fetched and totalled but never rendered — the sixth tile
+          is that number finally reaching the page. */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Stories" value={totals.posts} loading={isLoading} />
         <StatCard label="New Users" value={totals.users} loading={isLoading} />
+        <StatCard label="Ad Clicks" value={totals.clicks} loading={clicks.isLoading} />
         <StatCard label="Flags" value={totals.flags} loading={isLoading} />
         <StatCard label="AI Flags" value={totals.aiFlags} loading={isLoading} accent="amber" />
         <StatCard label="Human Flags" value={totals.humanFlags} loading={isLoading} />
@@ -90,31 +97,31 @@ export default function AdminAnalyticsPage() {
       </div>
 
       <section>
-        <h2 className="mb-2 font-medium">Recent moderation activity</h2>
+        <h2 className="mb-4 font-display text-xl font-bold text-text">Recent moderation activity</h2>
         {logs.isLoading ? (
-          <p className="text-sm text-gray-500">Loading…</p>
+          <div className="skeleton h-32 rounded-2xl" />
         ) : (logs.data?.length ?? 0) === 0 ? (
-          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-gray-500">
+          <p className="rounded-2xl border border-dashed border-border-strong p-8 text-center text-sm text-text-subtle">
             No moderation actions recorded yet.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-2xl border border-border-soft bg-surface shadow-soft">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-surface-muted text-left text-xs uppercase tracking-wider text-text-subtle">
                 <tr>
-                  <th className="p-2 text-left">When</th>
-                  <th className="p-2 text-left">Action</th>
-                  <th className="p-2 text-left">Target</th>
+                  <th className="p-3 font-semibold">When</th>
+                  <th className="p-3 font-semibold">Action</th>
+                  <th className="p-3 font-semibold">Target</th>
                 </tr>
               </thead>
               <tbody>
                 {logs.data!.map((l) => (
-                  <tr key={l.id} className="border-t">
-                    <td className="p-2 whitespace-nowrap text-gray-600">
+                  <tr key={l.id} className="border-t border-border-soft">
+                    <td className="p-3 whitespace-nowrap text-text-subtle">
                       {new Date(l.timestamp).toLocaleString()}
                     </td>
-                    <td className="p-2 font-medium">{l.action}</td>
-                    <td className="p-2 text-gray-600">
+                    <td className="p-3 font-medium text-text">{l.action}</td>
+                    <td className="p-3 text-text-light">
                       {l.target_type ? `${l.target_type} ${String(l.target_id ?? "").slice(0, 8)}` : "—"}
                     </td>
                   </tr>
@@ -140,10 +147,14 @@ function StatCard({
   accent?: "amber";
 }) {
   return (
-    <div className="rounded-lg border bg-white p-3">
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className={`text-2xl font-semibold ${accent === "amber" ? "text-amber-600" : ""}`}>
-        {loading ? <span className="text-gray-300">—</span> : value}
+    <div className="rounded-2xl border border-border-soft bg-surface p-4 shadow-soft transition-colors hover:border-primary/30">
+      <div className="text-xs font-medium uppercase tracking-wider text-text-subtle">{label}</div>
+      <div
+        className={`mt-2 font-display text-3xl font-bold ${
+          accent === "amber" ? "text-amber-600 dark:text-amber-400" : "text-text"
+        }`}
+      >
+        {loading ? <span className="text-text-subtle/40">—</span> : value}
       </div>
     </div>
   );
@@ -168,16 +179,16 @@ function ChartCard({
   const total = data.reduce((a, r) => a + r.count, 0);
 
   return (
-    <section className="rounded-lg border bg-white p-4">
-      <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="font-medium">{title}</h2>
-        <span className="text-sm text-gray-500">{total} total</span>
+    <section className="rounded-2xl border border-border-soft bg-surface p-5 shadow-soft">
+      <div className="mb-4 flex items-baseline justify-between">
+        <h2 className="font-semibold text-text">{title}</h2>
+        <span className="text-sm text-text-subtle">{total} total</span>
       </div>
 
       {loading ? (
-        <div className="h-32 animate-pulse rounded bg-gray-100" />
+        <div className="skeleton h-32" />
       ) : total === 0 ? (
-        <p className="flex h-32 items-center justify-center text-sm text-gray-500">
+        <p className="flex h-32 items-center justify-center text-sm text-text-subtle">
           Nothing in this period.
         </p>
       ) : (
@@ -187,14 +198,14 @@ function ChartCard({
               <div
                 key={r.day}
                 title={`${r.day}: ${r.count}`}
-                className="flex-1 rounded-t bg-gray-900/80 transition hover:bg-gray-900"
+                className="flex-1 rounded-t bg-primary/70 transition-colors hover:bg-primary"
                 // A zero-count day still gets a hairline so the axis reads as
                 // continuous rather than looking like missing data.
                 style={{ height: `${r.count === 0 ? 1 : (r.count / max) * 100}%` }}
               />
             ))}
           </div>
-          <div className="mt-2 flex justify-between text-xs text-gray-500">
+          <div className="mt-2 flex justify-between text-xs text-text-subtle">
             <span>{data[0]?.day}</span>
             <span>{data[data.length - 1]?.day}</span>
           </div>

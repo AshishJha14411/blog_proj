@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { getCommentsForPost, deleteComment, Comment } from '@/services/commentService';
 import { useHydratedAuth } from '@/hooks/useHydratedAuth';
+import Avatar from '@/components/ui/Avatar';
 import AddCommentForm from './AddCommentForm';
 
 interface CommentListProps {
@@ -49,41 +50,62 @@ export default function CommentList({ postId }: CommentListProps) {
     }
   };
 
-  if (loading) return <p className="mt-8 text-center">Loading comments...</p>;
-  
+  if (loading) {
+    return (
+      <div className="mt-12 space-y-3">
+        <div className="skeleton h-5 w-40" />
+        <div className="skeleton h-20 w-full rounded-2xl" />
+      </div>
+    );
+  }
+
   return (
-    <section className="mt-12">
-      <h2 className="text-2xl font-bold text-text mb-6">
-        Comments ({comments.length})
-      </h2>
-      
+    <section className="mt-14">
+      <div className="mb-6 flex items-center gap-3">
+        <h2 className="font-display text-2xl font-bold text-text">Comments</h2>
+        <span className="rounded-full bg-surface-muted px-2.5 py-0.5 text-sm font-medium text-text-subtle">
+          {comments.length}
+        </span>
+      </div>
+
       {isHydrated && isAuthenticated && (
         <AddCommentForm postId={postId} onCommentAdded={handleCommentAdded} />
       )}
 
-      <div className="space-y-6 mt-8">
+      <div className="mt-8 space-y-4">
         {comments.length > 0 ? (
           comments.map((comment) => (
-            <div key={comment.id} className="bg-background-alt p-4 rounded-lg shadow">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="font-bold text-text">{comment.user?.username}</p>
-                  <p className="text-sm text-text-light">
-                    {/* Only render the locale-specific date on the client */}
-                    {isClient ? new Date(comment.created_at).toLocaleString() : ''}
-                  </p>
+            <div
+              key={comment.id}
+              className="rounded-2xl border border-border-soft bg-surface p-5 shadow-soft transition-colors hover:border-primary/30"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <Avatar name={comment.user?.username} size="sm" />
+                  <div>
+                    <p className="text-sm font-semibold text-text">{comment.user?.username}</p>
+                    <p className="text-xs text-text-subtle">
+                      {/* Only render the locale-specific date on the client */}
+                      {isClient ? new Date(comment.created_at).toLocaleString() : ''}
+                    </p>
+                  </div>
                 </div>
                 {isHydrated && user?.id === comment.user?.id && (
-                  <button onClick={() => handleCommentDeleted(comment.id)} className="text-xs text-red-500 hover:underline">
+                  <button
+                    onClick={() => handleCommentDeleted(comment.id)}
+                    className="rounded-full px-2 py-1 text-xs font-medium text-text-subtle transition-colors hover:bg-red-500/10 hover:text-red-500"
+                  >
                     Delete
                   </button>
                 )}
               </div>
-              <p className="mt-3 text-text">{comment.content}</p>
+              <p className="mt-3 text-sm leading-relaxed text-text-light">{comment.content}</p>
             </div>
           ))
         ) : (
-          <p className="text-text-light">Be the first to comment!</p>
+          <p className="rounded-2xl border border-dashed border-border-strong px-6 py-10 text-center text-sm text-text-subtle">
+            Be the first to comment!
+          </p>
         )}
       </div>
     </section>

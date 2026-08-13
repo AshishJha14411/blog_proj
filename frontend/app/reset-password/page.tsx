@@ -61,21 +61,27 @@ function ResetPasswordForm() {
     };
 
     return (
-        <AuthCard title="Set a New Password">
+        <AuthCard title="Set a New Password" subtitle="At least 8 characters.">
             {success ? (
-                <p className="text-center text-green-600">{success}</p>
+                <p className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-center text-sm text-emerald-700 dark:text-emerald-300">
+                    {success}
+                </p>
             ) : (
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-5">
                     <div>
                         <FormLabel htmlFor="new-password">New Password</FormLabel>
-                        <Input id="new-password" type="password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={loading} />
+                        <Input id="new-password" type="password" required minLength={8} autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={loading} />
                     </div>
                     <div>
                         <FormLabel htmlFor="confirm-password">Confirm New Password</FormLabel>
-                        <Input id="confirm-password" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={loading} />
+                        <Input id="confirm-password" type="password" required minLength={8} autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={loading} />
                     </div>
-                    {error && <p className="text-sm text-red-500">{error}</p>}
-                    <Button type="submit" disabled={loading || !token}>{loading ? 'Resetting...' : 'Set New Password'}</Button>
+                    {error && (
+                        <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+                            {error}
+                        </p>
+                    )}
+                    <Button type="submit" disabled={loading || !token} className="w-full">{loading ? 'Resetting...' : 'Set New Password'}</Button>
                 </form>
             )}
         </AuthCard>

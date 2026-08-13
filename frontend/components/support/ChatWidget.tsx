@@ -184,13 +184,21 @@ export default function ChatWidget() {
   if (!isAuthenticated) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
+    <div className="fixed bottom-5 right-5 z-50">
       {open ? (
-        <div className="w-80 rounded-lg border bg-white shadow-lg flex flex-col max-h-[70vh]">
-          <div className="flex items-center justify-between border-b p-2">
-            <div className="font-medium">Support</div>
+        <div className="rise-in flex max-h-[70vh] w-[22rem] flex-col overflow-hidden rounded-2xl border border-border-soft bg-surface shadow-lift">
+          <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className={`h-2 w-2 rounded-full ${
+                  connected ? 'bg-emerald-500' : 'bg-text-subtle animate-pulse-soft'
+                }`}
+              />
+              <div className="text-sm font-semibold text-text">Support</div>
+            </div>
             <button
-              className="text-sm text-gray-500 hover:text-black"
+              className="rounded-full p-1 text-text-subtle transition-colors hover:bg-surface-muted hover:text-text"
               onClick={() => setOpen(false)}
               aria-label="Close"
             >
@@ -198,9 +206,9 @@ export default function ChatWidget() {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 space-y-2 text-sm">
+          <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
             {visibleMessages.length === 0 ? (
-              <p className="text-gray-500">
+              <p className="text-text-subtle">
                 Hi! Ask about the platform, moderation, or your account.
               </p>
             ) : (
@@ -211,17 +219,17 @@ export default function ChatWidget() {
                     m.role === "user"
                       ? "text-right"
                       : m.role === "system"
-                        ? "text-center text-gray-500 text-xs italic"
+                        ? "text-center text-xs italic text-text-subtle"
                         : "text-left"
                   }
                 >
                   <span
                     className={
                       m.role === "user"
-                        ? "inline-block bg-blue-500 text-white rounded-lg px-2 py-1"
+                        ? "inline-block max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-left text-on-primary"
                         : m.role === "system"
                           ? ""
-                          : "inline-block bg-gray-100 rounded-lg px-2 py-1"
+                          : "inline-block max-w-[85%] rounded-2xl rounded-bl-sm border border-border-soft bg-surface-muted px-3 py-2 text-text-light"
                     }
                   >
                     {m.content || (busy && m.role === "assistant" ? "…" : "")}
@@ -229,13 +237,13 @@ export default function ChatWidget() {
                 </div>
               ))
             )}
-            {error && <p className="text-xs text-red-500 text-center">{error}</p>}
+            {error && <p className="text-center text-xs text-red-500">{error}</p>}
           </div>
 
-          <div className="border-t p-2 space-y-2">
+          <div className="space-y-2 border-t border-border-soft p-3">
             <div className="flex gap-2">
               <input
-                className="flex-1 rounded border p-1 text-sm"
+                className="flex-1 rounded-full border border-border-soft bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -248,7 +256,7 @@ export default function ChatWidget() {
                 disabled={busy || !connected}
               />
               <button
-                className="rounded bg-black px-3 py-1 text-sm text-white disabled:opacity-50"
+                className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-colors hover:bg-primary-light disabled:opacity-50"
                 onClick={send}
                 disabled={busy || !connected || !input.trim()}
               >
@@ -256,7 +264,7 @@ export default function ChatWidget() {
               </button>
             </div>
             <button
-              className="w-full text-xs text-gray-500 underline"
+              className="w-full text-xs text-text-subtle transition-colors hover:text-primary-strong disabled:opacity-50"
               onClick={escalate}
               disabled={busy || !connected}
             >
@@ -267,10 +275,21 @@ export default function ChatWidget() {
       ) : (
         <button
           onClick={() => setOpen(true)}
-          className="rounded-full bg-black text-white shadow-lg h-12 w-12 flex items-center justify-center text-xl"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary text-on-dark shadow-lift ring-1 ring-white/10 transition-all hover:scale-105 hover:bg-primary hover:text-on-primary"
           aria-label="Open support chat"
         >
-          💬
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.7}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-5 w-5"
+          >
+            <path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12Z" />
+          </svg>
         </button>
       )}
     </div>

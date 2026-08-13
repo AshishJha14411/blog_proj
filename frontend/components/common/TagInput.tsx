@@ -15,7 +15,7 @@ export default function TagInput({ tags, setTags }: TagInputProps) {
     if (event.key === 'Enter' || event.key === ',') {
       event.preventDefault();
       const newTag = inputValue.trim();
-      
+
       if (newTag && !tags.includes(newTag)) {
         setTags([...tags, newTag]);
       }
@@ -29,20 +29,28 @@ export default function TagInput({ tags, setTags }: TagInputProps) {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 mb-2">
-        {tags.map((tag, index) => (
-          <div key={index} className="flex items-center gap-1 bg-primary/20 text-primary text-sm font-medium px-2 py-1 rounded-full">
-            <span>{tag}</span>
-            <button
-              type="button"
-              onClick={() => removeTag(tag)}
-              className="text-primary hover:text-red-500"
+      {tags.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {tags.map((tag, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-3 py-1 text-sm font-medium text-primary-strong"
             >
-              &times;
-            </button>
-          </div>
-        ))}
-      </div>
+              {/* The remove button must remain the tag span's IMMEDIATE next
+                  sibling — TagInput.test.tsx reaches it via nextElementSibling. */}
+              <span>{tag}</span>
+              <button
+                type="button"
+                onClick={() => removeTag(tag)}
+                aria-label={`Remove tag ${tag}`}
+                className="leading-none text-primary-strong/70 transition-colors hover:text-red-500"
+              >
+                &times;
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <Input
         type="text"
         value={inputValue}
@@ -53,4 +61,3 @@ export default function TagInput({ tags, setTags }: TagInputProps) {
     </div>
   );
 }
-

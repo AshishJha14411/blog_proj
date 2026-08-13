@@ -53,29 +53,29 @@ function VerificationProcessor() {
 
   // Helper to determine the color of the title text based on the status
   const getStatusColor = () => {
-    if (status === 'success') return 'text-green-500';
+    if (status === 'success') return 'text-emerald-600 dark:text-emerald-400';
     if (status === 'error') return 'text-red-500';
-    return 'text-[var(--text-body)]'; // Use the default theme color
+    return 'text-text'; // Use the default theme color
   };
 
   return (
     <div className="text-center">
-      <h1 className={`text-2xl font-bold mb-4 ${getStatusColor()}`}>
+      <h1 className={`mb-4 font-display text-2xl font-bold ${getStatusColor()}`}>
         {status === 'loading' && 'Verifying Your Email...'}
         {status === 'success' && 'Verification Successful!'}
         {status === 'error' && 'Verification Failed'}
       </h1>
-      <p className="text-[var(--text-subtle)]">{message}</p>
-      
+      <p className="text-sm leading-relaxed text-text-light">{message}</p>
+
       {status === 'success' && (
-        <p className="mt-4 text-sm text-[var(--text-subtle)]">
+        <p className="mt-4 text-sm text-text-subtle">
           You will be redirected to the login page shortly...
         </p>
       )}
 
       {/* Show a manual link to login in case the redirect fails or for immediate action */}
       {status !== 'loading' && (
-         <Link href="/login" className="mt-6 inline-block rounded-md bg-[var(--accent-primary)] px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[var(--accent-primary-light)] transition-colors">
+         <Link href="/login" className="mt-8 inline-block rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary shadow-soft transition-colors hover:bg-primary-light">
             Proceed to Login
         </Link>
       )}
@@ -89,9 +89,14 @@ function VerificationProcessor() {
 // which is required for components that use `useSearchParams`.
 export default function VerifyEmailPage() {
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center bg-[var(--page-background)] p-4">
-      <div className="w-full max-w-md p-8 bg-[var(--ui-background)] rounded-lg shadow-md border border-[var(--border-color)]">
-        <Suspense fallback={<div className="text-center">Loading...</div>}>
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4">
+      <div aria-hidden="true" className="aurora" />
+      <div
+        aria-hidden="true"
+        className="bg-dots mask-radial pointer-events-none absolute inset-0 opacity-60"
+      />
+      <div className="relative w-full max-w-md rounded-2xl border border-border-soft bg-surface/90 p-8 shadow-lift backdrop-blur-sm">
+        <Suspense fallback={<div className="text-center text-text-light">Loading...</div>}>
           <VerificationProcessor />
         </Suspense>
       </div>

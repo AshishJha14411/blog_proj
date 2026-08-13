@@ -1,5 +1,7 @@
 import { getAllPosts } from '@/services/postService';
 import PostCard from '@/components/common/PostCard';
+import EmptyState from '@/components/ui/EmptyState';
+import PageHeader from '@/components/ui/PageHeader';
 import Link from 'next/link';
 import nextDynamic from 'next/dynamic';
 import React from 'react';
@@ -16,17 +18,32 @@ export default async function AllPostsPage({ searchParams }: { searchParams?: Pr
   const { total, items: posts } = await getAllPosts(limit, offset);
   const totalPages = Math.ceil(total / limit);
 
+  const pagerLink =
+    'inline-flex items-center gap-2 rounded-full border border-border-soft bg-surface px-5 py-2.5 text-sm font-medium text-text transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary-strong';
+
   return (
-    <main className="mx-auto max-w-5xl p-8 font-sans">
-      <h1 className="mb-8 text-center text-4xl font-bold text-text">Stories</h1>
+    <main className="mx-auto max-w-6xl px-6 py-14 font-sans">
+      <PageHeader
+        eyebrow="The feed"
+        title="Stories"
+        description="Everything published on Quill & Code, newest first."
+        actions={
+          <Link
+            href="/userStory/create"
+            className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary transition-all hover:-translate-y-0.5 hover:bg-primary-light"
+          >
+            Write a story
+          </Link>
+        }
+      />
 
       {/* Banner ad above grid */}
-      <div className="mb-6">
+      <div className="mb-8">
         <AdSlot />
       </div>
 
       {posts.length > 0 ? (
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {posts.map((post, idx) => (
             <React.Fragment key={post.id}>
               <PostCard post={post} />
@@ -40,25 +57,37 @@ export default async function AllPostsPage({ searchParams }: { searchParams?: Pr
           ))}
         </div>
       ) : (
-        <p className="text-center text-text-light">No stories yet.</p>
+        <EmptyState
+          title="No stories yet"
+          description="Nothing has been published on this page. Try the first page, or write something."
+        />
       )}
 
       {/* Pagination */}
-      <div className="mt-12 flex justify-center gap-4">
-        {page > 1 && (
-          <Link href={`/userStory?page=${page - 1}`} className="rounded-md bg-primary px-4 py-2 text-white">
-            Previous
-          </Link>
-        )}
-        {page < totalPages && (
-          <Link href={`/userStory?page=${page + 1}`} className="rounded-md bg-primary px-4 py-2 text-white">
-            Next
-          </Link>
-        )}
-      </div>
+      {totalPages > 1 && (
+        <div className="mt-14 flex items-center justify-center gap-4">
+          {page > 1 ? (
+            <Link href={`/userStory?page=${page - 1}`} className={pagerLink}>
+              ← Previous
+            </Link>
+          ) : (
+            <span className="w-28" />
+          )}
+          <span className="text-sm text-text-subtle">
+            Page {page} of {totalPages}
+          </span>
+          {page < totalPages ? (
+            <Link href={`/userStory?page=${page + 1}`} className={pagerLink}>
+              Next →
+            </Link>
+          ) : (
+            <span className="w-28" />
+          )}
+        </div>
+      )}
 
       {/* Footer banner */}
-      <div className="mt-10">
+      <div className="mt-12">
         <AdSlot />
       </div>
     </main>

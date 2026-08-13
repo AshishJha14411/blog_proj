@@ -309,11 +309,28 @@ docker compose up -d
 # API docs  -> http://localhost:8000/docs
 ```
 
-Migrations and an admin user are seeded automatically on first boot.
+Migrations and an admin user are seeded automatically on first boot (the
+entrypoint skips both when `SKIP_MIGRATIONS=true`, which is how production runs
+— see [docs/DEPLOY.md](docs/DEPLOY.md)).
 
 Per-service detail — running tests, regenerating types, migrations:
 **[backend/README.md](backend/README.md#running-locally)** ·
 **[frontend/README.md](frontend/README.md#running-locally)**
+
+### Contributing, and working with AI agents
+
+The repo is set up so a new contributor — human or agent — can be productive
+without archaeology:
+
+| | |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | Working agreement: conventions, guardrails, definition of done. Claude Code loads it automatically; `backend/` and `frontend/` have scoped versions |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Setup, daily workflow, the exact commands that work here |
+| [`docs/TESTING.md`](docs/TESTING.md) | Test architecture and how to write a regression test that actually proves something |
+| [`docs/GOTCHAS.md`](docs/GOTCHAS.md) | Every trap that has already cost debugging time, symptom-first |
+| [`docs/adr/`](docs/adr/README.md) | Why things are the way they are |
+
+Full index: **[docs/README.md](docs/README.md)**.
 
 ## Deployment
 

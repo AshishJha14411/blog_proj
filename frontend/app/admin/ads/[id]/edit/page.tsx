@@ -4,6 +4,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { fetchAd, adminUpdateAd, AdUpdate } from '@/services/adsService';
+import Button from '@/components/ui/Button';
+import FormLabel from '@/components/ui/FormLabel';
+import Input from '@/components/ui/Input';
+import PageHeader from '@/components/ui/PageHeader';
+import Textarea from '@/components/ui/Textarea';
 import { useAuth } from '@/hooks/useAuth';
 import { getErrorMessage } from '@/lib/errors';
 
@@ -69,92 +74,107 @@ export default function AdminEditAdPage() {
     }
   }
 
-  if (!isHydrated || loading) return <div className="p-8">Loading…</div>;
-  if (err) return <div className="p-8 text-red-600">{err}</div>;
+  if (!isHydrated || loading) {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-14">
+        <div className="skeleton h-8 w-40" />
+        <div className="skeleton mt-8 h-96 rounded-2xl" />
+      </main>
+    );
+  }
+  if (err) {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-14">
+        <p className="rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
+          {err}
+        </p>
+      </main>
+    );
+  }
 
   return (
-    <main className="mx-auto max-w-3xl p-8">
-      <h1 className="text-2xl font-semibold mb-6">Edit Ad</h1>
+    <main className="mx-auto max-w-3xl px-6 py-14">
+      <PageHeader eyebrow="Admin" title="Edit Ad" />
 
-      {err && <div className="mb-4 rounded bg-red-50 p-3 text-red-700 text-sm">{err}</div>}
-
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form
+        onSubmit={onSubmit}
+        className="space-y-5 rounded-2xl border border-border-soft bg-surface p-6 shadow-soft sm:p-8"
+      >
         <div>
-          <label className="block text-sm mb-1">Advertiser Name</label>
-          <input
+          <FormLabel htmlFor="edit-advertiser">Advertiser Name</FormLabel>
+          <Input
+            id="edit-advertiser"
             name="advertiser_name"
             value={form.advertiser_name || ''}
             onChange={onChange}
-            className="w-full rounded border p-2"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm mb-1">Destination URL</label>
-          <input
+          <FormLabel htmlFor="edit-destination">Destination URL</FormLabel>
+          <Input
+            id="edit-destination"
             name="destination_url"
             value={form.destination_url || ''}
             onChange={onChange}
-            className="w-full rounded border p-2"
             required
             type="url"
           />
         </div>
 
         <div>
-          <label className="block text-sm mb-1">Image URL (optional)</label>
-          <input
+          <FormLabel htmlFor="edit-image">Image URL (optional)</FormLabel>
+          <Input
+            id="edit-image"
             name="image_url"
             value={form.image_url || ''}
             onChange={onChange}
-            className="w-full rounded border p-2"
             type="url"
           />
         </div>
 
         <div>
-          <label className="block text-sm mb-1">Ad Content</label>
-          <textarea
+          <FormLabel htmlFor="edit-content">Ad Content</FormLabel>
+          <Textarea
+            id="edit-content"
             name="ad_content"
+            rows={5}
             value={form.ad_content || ''}
             onChange={onChange}
-            className="w-full rounded border p-2 min-h-[120px]"
           />
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-end gap-6">
           <div>
-            <label className="block text-sm mb-1">Weight</label>
-            <input
+            <FormLabel htmlFor="edit-weight">Weight</FormLabel>
+            <Input
+              id="edit-weight"
               name="weight"
               value={form.weight ?? 1}
               onChange={onChange}
-              className="w-28 rounded border p-2"
+              className="w-28"
               type="number"
               min={1}
             />
           </div>
 
-          <label className="flex items-center gap-2 mt-6">
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border-soft bg-surface-muted/60 px-4 py-2.5">
             <input
               type="checkbox"
               name="active"
               checked={!!form.active}
               onChange={onChange}
+              className="h-4 w-4 accent-[var(--accent-primary)]"
             />
-            <span className="text-sm">Active</span>
+            <span className="text-sm text-text-light">Active</span>
           </label>
         </div>
 
-        <div className="pt-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-          >
+        <div className="border-t border-border-soft pt-5">
+          <Button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save Changes'}
-          </button>
+          </Button>
         </div>
       </form>
     </main>
