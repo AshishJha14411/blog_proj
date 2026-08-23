@@ -46,16 +46,22 @@ from app.utils.time import utcnow
 logger = logging.getLogger(__name__)
 
 
-# /** WHY: signup, forgot-password, etc. used to call background_tasks.add_task(
-#     mailer.send_email, ...). That runs in the request process, gets no retry,
-#     and vanishes on redeploy. Every send now goes through Celery. **/
 # /** WHAT: enqueue an SMTP send. `dedupe_key` is prefixed with the caller's
 #     concern (verify/otp/reset) + user id so a redelivered task doesn't send
 #     the same email twice. **/
-# /** WHY-THIS-WAY: `.delay(...)` runs synchronously under `task_always_eager`
-#     in tests and asynchronously (over Redis) in prod — same task body both
-#     paths, so tests still observe the send via the monkeypatched
-#     `_mailer_for_worker`. **/
+# /** WHY-THIS-WAY: `.delay(...)` runs the task INLINE — in tests and in
+#     production alike, because both set `task_always_eager` (production has no
+#     worker; see docs/adr/001-workerless-inline-tasks.md). It is not queued and
+#     it is not asynchronous. Two consequences the caller must know:
+#
+#       1. This call blocks for the duration of the SMTP conversation, so its
+#          latency is signup latency.
+#       2. Celery's `autoretry_for` on the task is INERT under eager mode. The
+#          only retries are the bounded in-process ones inside `Mailer`
+#          (ADR 003); beyond those the email is lost, and because
+#          `task_eager_propagates=False` swallows the failure, the caller still
+#          returns 200. Deliberate — a mail outage must not fail a signup — but
+#          it means a lost email is silent. **/
 def _enqueue_email(dedupe_key: str, *, to: str, subject: str, html: str) -> None:
     send_email_task.delay(
         message_id=dedupe_key,

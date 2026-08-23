@@ -31,7 +31,7 @@ That last point shapes how you write code here. See **Comments** below.
    not a contract to honour. (This exact drift shipped once — see
    `docs/GOTCHAS.md`.)
 3. **Tests are the contract.** `backend/tests` and `frontend/tests` must pass
-   before you claim done. Current baseline: **backend 385, frontend 89, `tsc`
+   before you claim done. Current baseline: **backend 391, frontend 89, `tsc`
    clean.** If you change user-facing copy, grep `frontend/tests/e2e/` too — it
    does *not* run locally, so CI is the first place it fails.
 4. **Don't commit or push unless asked.** The owner reviews before commits, and
@@ -180,7 +180,7 @@ here rather than running raw SQL — it makes the action reviewable and repeatab
 
 ## Definition of done
 
-1. Backend tests pass (385+), frontend tests pass (89+), `tsc --noEmit` clean.
+1. Backend tests pass (391+), frontend tests pass (89+), `tsc --noEmit` clean.
 2. New behaviour has a test. A bug fix has a **regression test that you verified
    fails without the fix** — this is not optional; a test that passes on the
    broken code proves nothing.

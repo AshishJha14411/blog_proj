@@ -9,6 +9,7 @@ a bug** — the reasoning that isn't recoverable from reading the code.
 |---|---|---|---|
 | [001](001-workerless-inline-tasks.md) | Run background tasks inline; drop the always-on Celery worker | Accepted | 2026-07-27 |
 | [002](002-genre-as-tags.md) | Story genre becomes its tags, with no controlled vocabulary | Accepted | 2026-08-06 |
+| [003](003-inline-smtp-retry.md) | Retry SMTP in-process, because Celery's retries don't run | Accepted | 2026-08-23 |
 
 ## When to write one
 

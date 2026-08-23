@@ -298,6 +298,32 @@ There is no worker (ADR 001). Without the flag, four call sites enqueue to a
 broker nobody consumes and **fail silently**: story publish (stays `pending`
 forever), signup verification email, webhook delivery, support escalation.
 
+### A task's retry decorator is a lie in production
+
+**Symptom:** you read `@celery_app.task(autoretry_for=..., max_retries=3,
+retry_backoff=4, retry_jitter=True)` and conclude the operation is protected
+against transient failures. It isn't.
+
+**Cause:** production runs `task_always_eager=True`. **Eager mode does not
+retry** — `self.retry()` raises instead of re-executing. Every retry knob on
+every task is inert. `tests/unit/tasks/test_email_task.py` documents this: it
+asserts against `Retry` escaping `.apply()`.
+
+**And the failure is invisible.** `task_eager_propagates=False` swallows the
+exception so a broken task can't turn a successful write into a 500. Net effect
+for email: **signup returns 200, the verification email is never sent, the user
+is told nothing, and nothing retries.**
+
+**Rule:** if a task must not be lost, retry **inside** the operation, not via
+Celery. `Mailer.send_email` does this — 3 attempts, 1s linear backoff, with
+permanent errors (`SMTPRecipientsRefused`, `SMTPAuthenticationError`, …)
+short-circuiting so a rejected address doesn't burn a waiting user's time.
+See `docs/adr/003-inline-smtp-retry.md`.
+
+**Watch out:** `smtplib.SMTPException` subclasses `OSError`, so a blanket
+`except OSError` sweeps permanent failures into a retry loop. Name them
+explicitly.
+
 ### Vercel builds `main`
 
 Pushing to `dev` deploys no frontend. When reporting a frontend fix, say whether

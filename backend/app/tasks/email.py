@@ -1,9 +1,27 @@
 """
 /** WHY: emails used to go through fastapi.BackgroundTasks — the same process
-    that served the request. That's fine when it works, but a deploy or crash
-    between "task added" and "SMTP handshake done" drops the mail on the floor
-    with no retry, no visibility. Moving to Celery gives us: durable enqueue
-    (Redis broker), automatic retries, and one place to view failures. **/
+    that served the request, with no idempotency and no structured logging.
+    Routing them through a Celery task gives one place to dedupe, log and
+    fingerprint failures. **/
+
+/** ⚠ READ THIS BEFORE TRUSTING THE RETRY CONFIG BELOW ⚠
+
+    Production runs `task_always_eager=True` — there is no worker and no broker
+    consumer (docs/adr/001-workerless-inline-tasks.md). Under eager mode Celery
+    does NOT retry: `self.retry()` raises instead of re-running the task. So
+    `autoretry_for`, `max_retries`, `retry_backoff` and `retry_jitter` on this
+    task are ALL INERT in production. The suite's own tests document this — see
+    tests/unit/tasks/test_email_task.py, which asserts against `Retry` being
+    raised out of `.apply()`.
+
+    They are kept because they are correct the moment a worker exists, and
+    deleting them would mean rebuilding the curve later. Treat them as dormant,
+    not as active protection.
+
+    The retries that DO run in production are the small bounded ones inside
+    `Mailer.send_email` (docs/adr/003-inline-smtp-retry.md). Past those, the
+    email is lost — and `task_eager_propagates=False` means the caller never
+    learns. **/
 
 /** WHAT: `send_email_task(message_id, to, subject, html)` enqueues an SMTP
     send. `message_id` is used as an idempotency key so the same logical

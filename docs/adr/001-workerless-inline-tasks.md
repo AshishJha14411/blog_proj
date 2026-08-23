@@ -58,6 +58,12 @@ HTTP request and turn a successful write into a 500.
 **Accepted costs**
 - **No retries or backoff.** Eager mode does not retry. A transient SMTP failure
   loses that email; the user must trigger a resend. This is the real price.
+  *(Update 2026-08-23 — this cost proved sharper than written. The loss is also
+  **silent**: `task_eager_propagates=False` hides the failure, so signup returns
+  200 and the user is never told. The common transient case is now handled by a
+  bounded in-process retry inside `Mailer` — see
+  [ADR 003](003-inline-smtp-retry.md). The decision recorded here is unchanged:
+  still no worker, still no durable retries.)*
 - **No time limits.** `task_time_limit` is ignored in eager mode, so a task can
   only be bounded by the caller's own timeouts.
 - **Task latency is now user-visible** — signup carries the SMTP round-trip.

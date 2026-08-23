@@ -271,7 +271,7 @@ blog_proj/
 │   │   ├── llm/            # Provider adapter — isolates the app from vendor SDKs
 │   │   └── core/           # Config, database engines, Redis client
 │   ├── alembic/versions/   # Migrations (linear chain)
-│   ├── tests/              # 385 tests: unit, integration, property-based, fuzz
+│   ├── tests/              # 391 tests: unit, integration, property-based, fuzz
 │   └── loadtest/           # Locust scenarios (not run in CI)
 ├── frontend/
 │   ├── app/                # Next.js App Router pages

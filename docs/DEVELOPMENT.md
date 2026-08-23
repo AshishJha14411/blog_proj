@@ -106,7 +106,7 @@ docker compose exec -T frontend npx tsc --noEmit
 docker compose exec -T frontend npx vitest run tests/unit/hooks/useUnreadNotifications.test.ts
 ```
 
-**Baseline: backend 385, frontend 89, `tsc` clean.** Anything less is a
+**Baseline: backend 391, frontend 89, `tsc` clean.** Anything less is a
 regression you introduced.
 
 Full detail — including why Cypress can't run locally — in `TESTING.md`.
