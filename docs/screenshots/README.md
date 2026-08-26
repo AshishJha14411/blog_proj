@@ -5,7 +5,15 @@ with the exact filename and it appears automatically** — no markdown edits nee
 Until then GitHub shows a broken-image icon, which is deliberate: a missing
 screenshot is better than a fake placeholder image.
 
-## Captured ✅
+> ⚠ **All five committed screenshots predate the design-system rewrite.** The UI
+> now has a token-based palette, a `components/ui/` primitive set and light/dark
+> theming; these images show the previous look. They are still accurate about
+> *features* — the streaming generation, the notification dropdown, the
+> moderation queue all work as shown — but not about styling. **Re-shoot all of
+> them** before treating the README as a visual portfolio piece. This note stays
+> until they're replaced.
+
+## Captured ✅ (but visually out of date — see above)
 
 | Filename | Shows | Used in |
 |---|---|---|
@@ -22,6 +30,7 @@ Not referenced by any README yet — add the markdown once the file exists.
 | Filename | What to capture | Notes |
 |---|---|---|
 | `home.png` (re-shoot) | `/` — the hero plus the **Most loved stories** rail | The current file shows `/userStory`; `/` is now the real landing page |
+| `dark-mode.png` | Any page with the theme toggled to dark | New since the rewrite and worth showing — the palette was designed for both |
 | `story-detail.png` | A published story with comments, likes and **tag chips** visible | Tags now exist — generated stories take their genre as their tag |
 | `analytics.png` | `/admin/analytics` with the daily bar charts populated | Sign in as superadmin; pick the 30d range |
 | `api-docs.png` | Swagger UI at `<backend>/docs`, a few groups expanded | — |

@@ -54,6 +54,20 @@ curl -s http://localhost:8000/docs > /dev/null && echo "swagger ok"
 `SECRET_KEY` and `JWT_SECRET_KEY` are **separate on purpose** — JWTs are signed
 with the dedicated one.
 
+`backend/.env.example` carries the full backend list. The tunables worth knowing
+about, all with working defaults and all changeable **without a redeploy**:
+
+| Variable | Default | What it controls |
+|---|---|---|
+| `CELERY_TASK_ALWAYS_EAGER` | `true` (compose) | Run tasks inline. Production has no worker — see below |
+| `LLM_MODEL` | `gemini-flash-lite-latest` | **flash-*lite***. Plain flash measured 43s to first token and 504'd in production |
+| `LLM_TIMEOUT` | `120` | Seconds. A "long" story legitimately streams for minutes |
+| `LLM_MAX_TOKENS` | `8192` | Output cap for generation |
+| `SMTP_TIMEOUT_SECONDS` | `5` | Bounds **one** SMTP attempt |
+| `SMTP_TOTAL_BUDGET_SECONDS` | `12` | Bounds **all** attempts + backoff — the real worst case a signup waits |
+| `MODERATION_PROFANITY_THRESHOLD` | `10` | Profane words before a story is *held* for review (never auto-rejected) |
+| `E2E_TESTING` | unset | Cypress only — disables rate limits, auto-promotes `*creator*` usernames |
+
 ⚠ `backend/.env` points at **production**. `docker compose` overrides it to the
 local database, but any command run outside compose (notably alembic) will hit
 production unless you pin the URL explicitly. See `DEPLOY.md`.

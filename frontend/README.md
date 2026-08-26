@@ -109,7 +109,7 @@ body (likes, comments, actions) is extracted into `StoryDetailClient.tsx`.
 | Types | openapi-typescript | Generated from the API schema — drift is a compile error |
 | Sanitising | isomorphic-dompurify | Story bodies are HTML and must be sanitised on both server and client |
 | UI | Tailwind CSS · Radix Slot | Utility styling, accessible primitives |
-| Tests | Vitest + Testing Library · Cypress | 88 unit/component tests; E2E in `tests/e2e/` |
+| Tests | Vitest + Testing Library · Cypress | 89 unit/component tests; E2E in `tests/e2e/` |
 
 ## Why I Built It
 
@@ -148,6 +148,51 @@ Refresh tokens **rotate** — each refresh invalidates the one it consumed. Beca
 `storage` event listener re-hydrates the store so no tab is left holding a revoked
 token.
 
+### Design system and theming
+
+There is **no `tailwind.config.js`**. This is Tailwind v4, configured CSS-first:
+design tokens are declared in an `@theme` block in `app/globals.css`, and that
+file is the single source of truth for the visual language.
+
+```css
+:root  { --page-background: #FDFBF8;  --accent-primary: #D9A6A3;  … }
+.dark  { --page-background: #1a1613;  --accent-primary: #dfb2ae;  … }
+
+@theme {
+  --color-surface:      var(--ui-background);
+  --color-primary:      var(--accent-primary);
+  --color-text:         var(--text-main);
+  --color-border-soft:  var(--border-color);
+  …
+}
+```
+
+Semantic names, not literal ones: components use `bg-surface` and
+`text-text-subtle` rather than a colour. Dark mode is then one block that
+reassigns the underlying variables — every utility built on them follows, with
+no per-component `dark:` variants to maintain.
+
+**Dark mode is class-based and deliberately provider-free.** The source of truth
+is the `dark` class on `<html>`:
+
+- an inline script in `app/layout.tsx` reads `localStorage.theme` (falling back
+  to `prefers-color-scheme`) and applies the class **before first paint**, so
+  there is no flash of the wrong theme;
+- `components/theme/ThemeToggle.tsx` toggles that class and persists the choice;
+- `@custom-variant dark (&:where(.dark, .dark *))` wires Tailwind's `dark:`
+  variant to it.
+
+> That script must stay the **first child of `<body>`**, never in a hand-written
+> `<head>`. React 19 hoists it into the head on both server and client, so the
+> no-flash behaviour is unchanged — but a literal `<head>` in the root layout is
+> a hydration boundary that Cypress's document rewriting breaks. See
+> [GOTCHAS](../docs/GOTCHAS.md).
+
+**Only names declared in `@theme` generate utilities.** A class whose token was
+never declared emits *no CSS at all* — no error, no warning, the element simply
+renders unstyled. When a surface looks unexpectedly transparent, check the token
+exists before debugging anything else.
+
 ### Data contract
 
 The frontend owns no database. Its "schema" is the backend's OpenAPI document:
@@ -183,7 +228,14 @@ frontend/
 │   ├── robots.ts
 │   └── providers.tsx         # QueryClientProvider
 ├── components/
-│   ├── common/               # PostCard, NotificationsBell, forms
+│   ├── ui/                   # Design-system primitives — Button, Card, Badge,
+│   │                         #   Avatar, Input, Select, Textarea, Skeleton,
+│   │                         #   EmptyState, PageHeader, FormLabel, AuthCard
+│   ├── common/               # App composites — PostCard, Navbar, Footer,
+│   │                         #   NotificationsBell, comment + story forms
+│   ├── theme/ThemeToggle.tsx # Light/dark switch (no provider — see below)
+│   ├── story/                # PublishControls, regenerate-with-feedback
+│   ├── ads/                  # AdSlot, AdCard
 │   ├── support/ChatWidget.tsx# Support chat over WebSocket
 │   └── auth/                 # Login, signup, Google button
 ├── hooks/
@@ -239,7 +291,7 @@ browser uses the published host port.
 ### Checks
 
 ```bash
-npm test                 # Vitest — 88 tests
+npm test                 # Vitest — 89 tests
 npx tsc --noEmit         # Type check
 npm run build            # Production build (25 routes)
 npm run gen:api          # Regenerate API types (API must be running)

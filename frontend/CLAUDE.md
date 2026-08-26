@@ -125,13 +125,22 @@ truth, so read it before assuming a class exists.
 
 **Only names declared in `@theme` generate utilities.** A class like
 `bg-something-alt` whose token was never declared silently produces *no style* —
-Tailwind emits nothing and the element renders unstyled. This has already
-happened here. When adding a colour: declare the token in `@theme` first, then
-use it. When a surface looks unexpectedly transparent, check the token exists
-before debugging anything else.
+Tailwind emits nothing and the element renders unstyled, with no error and no
+warning. This has shipped here before. When adding a colour: declare the token
+in `@theme` first, then use it. When a surface looks unexpectedly transparent,
+check the token exists before debugging anything else.
 
-Prefer tokens over raw hex or arbitrary values so a theme change stays a
-one-file edit.
+Use the **semantic** tokens (`bg-surface`, `text-text-subtle`,
+`border-border-soft`), not raw hex or arbitrary values. Dark mode works by
+reassigning the underlying variables in one `.dark` block, so anything built on
+a token follows automatically — and anything built on a literal colour doesn't.
+
+**Dark mode is class-based and provider-free.** The `dark` class on `<html>` is
+the source of truth; an inline script in `app/layout.tsx` applies it before
+first paint, and `ThemeToggle` flips it. That script must remain the **first
+child of `<body>`** — never a hand-written `<head>` (see `docs/GOTCHAS.md`).
+
+Full explanation: [`README.md` → Design system and theming](README.md#design-system-and-theming).
 
 ---
 

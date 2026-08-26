@@ -189,9 +189,12 @@ There is no `tailwind.config.js`; tokens are declared in an `@theme` block in
 whose token was never declared emits no CSS at all — no error, no warning, the
 element is simply unstyled.
 
-This shipped: `bg-background-alt` was used on five card surfaces while
+This shipped once: `bg-background-alt` was used on five card surfaces while
 `--color-background-alt` was never declared, so those cards rendered transparent
-against the page.
+against the page. **That instance is fixed** — the token exists in `@theme` and
+the design-system rewrite replaced those usages with `bg-surface`. The trap
+itself is permanent, which is why it stays documented: Tailwind cannot warn you
+about a class it has never heard of.
 
 **When a surface looks unexpectedly transparent, check the token exists before
 debugging anything else.**

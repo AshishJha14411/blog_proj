@@ -297,8 +297,8 @@ blog_proj/
 worker and the frontend all come up in containers.
 
 ```bash
-git clone https://github.com/AshishJha14411/blog_proj.git
-cd blog_proj
+git clone https://github.com/AshishJha14411/QuillnCode.git
+cd QuillnCode
 
 # Secrets: fill in at minimum GOOGLE_API_KEY (Gemini) and the ADMIN_* values.
 cp .env.example .env
