@@ -67,6 +67,38 @@ docker compose exec -T backend python -m app.seed
 Creates the roles and an admin account from the `ADMIN_*` env vars. CI runs this
 before e2e.
 
+### Background tasks run inline — locally too
+
+`CELERY_TASK_ALWAYS_EAGER` defaults to **`true`** in `docker-compose.yml`, so
+`.delay()` executes the task immediately, in the calling process. **There is no
+worker, and you don't need one.** This matches production exactly (ADR 001).
+
+> **This default was flipped for a reason.** It used to be `false`, so local dev
+> ran the *opposite* semantics to production and the behaviour depended on
+> whether the optional `worker` container was up:
+>
+> ```
+> docker compose up -d                    → worker runs, tasks drain
+> docker compose up -d backend db redis   → NOTHING consumes the queue
+> ```
+>
+> In the second case every `.delay()` enqueued to Redis and sat there forever.
+> Published stories stayed **`pending`**, verification emails were **never
+> sent**, and nothing errored — because the *enqueue* succeeded. It looks
+> exactly like a broken app, and it is not a bug that exists in production.
+>
+> If you see stories stuck in `pending` or emails never arriving locally, check
+> this setting before you debug anything else.
+
+The `worker` service still exists in compose for exercising the real worker path
+(Celery's `autoretry_for` only does anything with a worker). Opt in explicitly:
+
+```bash
+CELERY_TASK_ALWAYS_EAGER=false docker compose up -d      # worker included
+```
+
+Just remember that configuration is **not** what production runs.
+
 ---
 
 ## Daily workflow
@@ -106,7 +138,7 @@ docker compose exec -T frontend npx tsc --noEmit
 docker compose exec -T frontend npx vitest run tests/unit/hooks/useUnreadNotifications.test.ts
 ```
 
-**Baseline: backend 391, frontend 89, `tsc` clean.** Anything less is a
+**Baseline: backend 394, frontend 89, `tsc` clean.** Anything less is a
 regression you introduced.
 
 Full detail — including why Cypress can't run locally — in `TESTING.md`.
@@ -210,5 +242,8 @@ local check and fail there.
 | CORS error in the browser | Usually a real 500: a crash escapes before CORS headers are attached. Read the server log |
 | `connection refused` between containers | Use service names and the *internal* port: `http://backend:8080` |
 | Alembic hit the wrong database | `backend/.env` points at production — pin `MIGRATION_DATABASE_URL` |
+| **Stories stuck in `pending`** | Nothing consumed the task. Check `CELERY_TASK_ALWAYS_EAGER` is `true` (it's the compose default) — if it's `false` you need the `worker` container running |
+| **Emails never arrive locally** | Same cause as above. If eager mode *is* on, check the send actually happened: the task logs `email sent (message_id=…)` |
+| Signup feels slow | It sends **two** emails (verification + OTP) inline. Bounded by `SMTP_TOTAL_BUDGET_SECONDS` (default 12s) |
 
 More, with the full stories behind them, in `GOTCHAS.md`.

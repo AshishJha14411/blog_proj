@@ -28,10 +28,44 @@ reading `tasks/email.py` would reasonably conclude the path was protected.
 
 The transient case is the common one, and it is recoverable in-process.
 
+## A second problem the first version missed
+
+Retrying inline fixed the silent loss but created a latency problem, raised by a
+reader of the write-up:
+
+> Eager mode is useful, but Cloud Run's request timeout is now the only bound
+> your inline tasks have. A hung SMTP call that used to die at `task_time_limit`
+> now sits on signup until the service timeout fires.
+
+Correct, and worse than it sounds. `task_time_limit=30` is enforced *by a
+worker*, so with no worker it is not enforced at all. `smtplib` has no default
+socket timeout either — it inherits `None` and blocks until the OS gives up. The
+only remaining bound was Cloud Run's **300s** request timeout (a platform
+default, never chosen). A user could wait five minutes and receive a 504 on a
+signup whose account row had already committed.
+
+And a per-attempt timeout alone does not fix it: N attempts × a timeout, plus
+backoff, is the real worst case. Three attempts at 10s is 33 seconds of
+blocking — a worse promise than the single unbounded call it replaced, because
+now it is *reliably* slow.
+
 ## Decision
 
-Add a **small, bounded retry inside `Mailer.send_email`**: 3 attempts total with
-a 1s linear backoff, so a failed send costs at most ~3 extra seconds.
+Add a **bounded retry inside `Mailer.send_email`, governed by a hard total
+deadline**:
+
+| Setting | Default | Bounds |
+|---|---|---|
+| `SMTP_TIMEOUT_SECONDS` | 5s | one attempt (socket connect **and** commands) |
+| `SMTP_TOTAL_BUDGET_SECONDS` | 12s | **every attempt plus all backoff** |
+
+The budget is the real contract: the worst case a user waits on signup because
+of email is **one number**, not a number times an attempt count. Attempts are
+clipped to the remaining budget, and the loop stops when the budget runs out
+rather than when `max_attempts` is reached.
+
+Both are env vars so a misbehaving provider can be worked around without a
+redeploy.
 
 Permanent failures short-circuit immediately via an explicit
 `PERMANENT_SMTP_ERRORS` tuple — `SMTPAuthenticationError`,
@@ -57,9 +91,15 @@ it becomes correct the moment a worker exists.
 
 **Accepted costs**
 
-- **Signup latency grows on failure** — up to ~3s while attempts and backoff
-  run, because the send is inline. Success is unaffected (no sleep on the happy
-  path, which is asserted by a test).
+- **Signup latency grows on failure** — up to the budget (12s by default),
+  because the send is inline. Success is unaffected (no sleep on the happy path,
+  which is asserted by a test). Note signup sends **two** emails (verification +
+  OTP), so a full mail outage costs up to two budgets.
+- **The Cloud Run request timeout is still 300s** and still unset by the repo.
+  It is no longer reachable via email, but it remains the only bound on any
+  other slow dependency. Reported, deliberately not changed — it is shared with
+  the AI streaming path, whose own `LLM_TIMEOUT` is 120s, so it cannot be
+  lowered far.
 - **It does not survive a sustained outage or a process restart.** Anything
   longer than a few seconds of SMTP unavailability still loses the email, still
   silently. This narrows the window; it does not close it.

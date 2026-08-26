@@ -20,7 +20,7 @@ A Python 3.12 / FastAPI application with:
   analytics, JSONB, partial and composite indexes, optimistic locking
 - **Streaming AI generation** over Server-Sent Events
 - **WebSockets** with ticket-based auth and a Redis pub/sub backplane
-- **391 tests** — unit, integration, property-based (Hypothesis), and fuzz
+- **394 tests** — unit, integration, property-based (Hypothesis), and fuzz
 
 ## Live Demo
 
@@ -448,7 +448,7 @@ docker compose exec \
   -e TEST_DB_BASE="postgresql://test_user:test_password@db:5432/quill_test" \
   -e NO_NETWORK=0 \
   backend python -m pytest tests/ -m "not e2e"
-# 391 passed
+# 394 passed
 ```
 
 `TEST_DB_BASE` is overridden because the suite defaults to `localhost` (correct in

@@ -67,8 +67,21 @@ gcloud builds submit backend/ --tag us-central1-docker.pkg.dev/gen-lang-client-0
 gcloud run deploy quill-backend \
   --image us-central1-docker.pkg.dev/gen-lang-client-0452867537/backend-repo/api:vNN \
   --region us-central1 \
+  --timeout=300 \
   --update-env-vars=ENVIRONMENT=production,SKIP_MIGRATIONS=true,CELERY_TASK_ALWAYS_EAGER=true
 ```
+
+**`--timeout=300` is stated explicitly on purpose.** 300s happens to be the
+Cloud Run default, so this changes nothing today — but under eager mode the
+service timeout is the last bound on any inline task
+(`task_time_limit` is enforced by a worker, and there is no worker), so it
+should be a recorded decision rather than a platform default nobody chose.
+
+It cannot be lowered far: this service also serves **AI streaming generation**,
+whose own `LLM_TIMEOUT` is 120s, so a long story legitimately holds a request
+for around two minutes. ~180s is the practical floor. Email no longer reaches
+this bound at all — it is capped by `SMTP_TOTAL_BUDGET_SECONDS` (12s) — see
+[ADR 003](adr/003-inline-smtp-retry.md).
 
 ⚠ **`--update-env-vars`, never `--set-env-vars`.** `--set-env-vars` REPLACES the
 whole env list — it would silently delete the ~13 other literal vars the service

@@ -31,7 +31,7 @@ That last point shapes how you write code here. See **Comments** below.
    not a contract to honour. (This exact drift shipped once — see
    `docs/GOTCHAS.md`.)
 3. **Tests are the contract.** `backend/tests` and `frontend/tests` must pass
-   before you claim done. Current baseline: **backend 391, frontend 89, `tsc`
+   before you claim done. Current baseline: **backend 394, frontend 89, `tsc`
    clean.** If you change user-facing copy, grep `frontend/tests/e2e/` too — it
    does *not* run locally, so CI is the first place it fails.
 4. **Don't commit or push unless asked.** The owner reviews before commits, and
@@ -139,9 +139,12 @@ Full explanations in `docs/DEVELOPMENT.md`. **Cypress cannot run locally here**
   `frontend/lib/api-types.ts`. Frontend types are **generated**; never hand-edit
   them. Backend contract changes surface as frontend compile errors, which is
   the point.
-- **No Celery worker in production** — tasks run inline
-  (`CELERY_TASK_ALWAYS_EAGER`). This is a deliberate cost trade-off with real
-  consequences (no retries). Read `docs/adr/001-workerless-inline-tasks.md`
+- **No Celery worker anywhere** — tasks run inline (`CELERY_TASK_ALWAYS_EAGER`),
+  in production *and* by default locally, so the two behave the same. A
+  deliberate cost trade-off with real consequences: **Celery's own retry config
+  is inert**, and a failed task fails silently. Where a task must not be lost,
+  the retry lives inside the operation (`Mailer.send_email`). Read
+  `docs/adr/001-workerless-inline-tasks.md` and `docs/adr/003-inline-smtp-retry.md`
   before touching anything task-related.
 
 ---
@@ -180,7 +183,7 @@ here rather than running raw SQL — it makes the action reviewable and repeatab
 
 ## Definition of done
 
-1. Backend tests pass (391+), frontend tests pass (89+), `tsc --noEmit` clean.
+1. Backend tests pass (394+), frontend tests pass (89+), `tsc --noEmit` clean.
 2. New behaviour has a test. A bug fix has a **regression test that you verified
    fails without the fix** — this is not optional; a test that passes on the
    broken code proves nothing.

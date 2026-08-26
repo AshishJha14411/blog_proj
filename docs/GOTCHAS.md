@@ -298,6 +298,37 @@ There is no worker (ADR 001). Without the flag, four call sites enqueue to a
 broker nobody consumes and **fail silently**: story publish (stays `pending`
 forever), signup verification email, webhook delivery, support escalation.
 
+### Stories stuck in `pending`, emails never sent, and no error anywhere
+
+**Symptom:** you publish a story and it sits at `pending` forever. Signups never
+receive a verification email. Nothing in the logs, no exception, no failed
+request — the API returns success every time.
+
+**Cause:** nothing consumed the task. `.delay()` succeeded — it enqueued to Redis
+— and no worker existed to drain the queue. The enqueue is the part that
+reports success, so everything upstream looks healthy.
+
+This was a **local-only** trap created by a config divergence:
+`docker-compose.yml` used to default `CELERY_TASK_ALWAYS_EAGER` to `false` while
+production sets it to `true`, and the optional `worker` container is only started
+by a bare `docker compose up -d`. So:
+
+```
+docker compose up -d                    → worker runs, tasks drain, all fine
+docker compose up -d backend db redis   → queue fills, nothing ever runs
+```
+
+**Fix:** the compose default is now `true`, so local matches production and no
+worker is needed. Verify with:
+
+```bash
+docker compose exec -T backend python -c \
+  "from app.worker import celery_app; print(celery_app.conf.task_always_eager)"
+```
+
+**Rule:** when a task's *effect* never happens but nothing errors, check who was
+supposed to consume it before debugging the task body.
+
 ### A task's retry decorator is a lie in production
 
 **Symptom:** you read `@celery_app.task(autoretry_for=..., max_retries=3,

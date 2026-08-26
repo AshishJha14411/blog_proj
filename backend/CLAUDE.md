@@ -211,5 +211,5 @@ The `rm -rf` + `cp` is required: only `backend/app` is bind-mounted, so edited
 tests do not reach the container otherwise, and you will be running stale code.
 Use `--user root` — the app user can't delete that directory.
 
-Baseline: **391 passed**. Hot reload is not enabled; `docker compose restart
+Baseline: **394 passed**. Hot reload is not enabled; `docker compose restart
 backend` after changing anything outside `app/`.

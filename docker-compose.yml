@@ -22,11 +22,27 @@ services:
       MIGRATION_DATABASE_URL: "postgresql://test_user:test_password@db:5432/test_db"
       # Redis (rate limiter + cache). Compose service name is `redis`.
       REDIS_URL: "redis://redis:6379/0"
-      # Workerless mode (see docs/adr/001). Defaults to false so local dev keeps
-      # using the real worker; set it to reproduce PROD, where no worker exists:
-      #   CELERY_TASK_ALWAYS_EAGER=true docker compose up -d backend
-      #   docker compose stop worker
-      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-false}
+      # Workerless mode — see docs/adr/001-workerless-inline-tasks.md.
+      #
+      # /** WHY THE DEFAULT IS `true`: production has NO worker. It was deleted
+      #     for cost, and tasks run inline in the web process. This used to
+      #     default to `false`, which meant local dev ran the OPPOSITE semantics
+      #     to production, and the behaviour silently depended on whether the
+      #     optional `worker` container happened to be running:
+      #
+      #       docker compose up -d                  -> worker runs, tasks drain
+      #       docker compose up -d backend db redis -> NOTHING consumes the queue
+      #
+      #     In the second case every `.delay()` enqueued to Redis and sat there,
+      #     so published stories stayed `pending` forever and verification emails
+      #     were never sent — with no error anywhere, because the enqueue itself
+      #     succeeded. That is a confusing way to lose an afternoon, and it is
+      #     not a bug that exists in production at all.
+      #
+      #     Local now matches prod by default. To exercise the real worker path
+      #     (e.g. to test retries, which only work with a worker), opt in:
+      #       CELERY_TASK_ALWAYS_EAGER=false docker compose up -d **/
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-true}
 
       # We load all other secrets from your .env file
       SECRET_KEY: ${SECRET_KEY}

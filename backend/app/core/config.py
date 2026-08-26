@@ -12,6 +12,20 @@ class Settings(BaseSettings):
     MAIL_PASSWORD: str
     MAIL_FROM: str
     MAIL_FROM_NAME: str
+    # /** WHY THESE ARE ENV-TUNABLE: the SMTP send runs INLINE inside the signup
+    #     request (no worker — ADR 001), and `task_time_limit` is enforced by a
+    #     Celery worker, so under eager mode it does nothing. That left the Cloud
+    #     Run service timeout (300s) as the only bound on a hung mail provider.
+    #     These two put the bound back where it belongs — at the call site — and
+    #     make it changeable without a redeploy when a provider misbehaves.
+    #
+    #     SMTP_TIMEOUT_SECONDS       caps ONE attempt (socket connect + commands).
+    #     SMTP_TOTAL_BUDGET_SECONDS  caps ALL attempts plus their backoff, so
+    #                                retries can never multiply into a long block.
+    #     The budget is the number that matters: it is the worst case a user can
+    #     wait on signup because of email. See docs/adr/003-inline-smtp-retry.md. **/
+    SMTP_TIMEOUT_SECONDS: float = float(os.getenv("SMTP_TIMEOUT_SECONDS", "5"))
+    SMTP_TOTAL_BUDGET_SECONDS: float = float(os.getenv("SMTP_TOTAL_BUDGET_SECONDS", "12"))
     ADMIN_USERNAME:str
     ADMIN_EMAIL:str
     ADMIN_PASSWORD:str
