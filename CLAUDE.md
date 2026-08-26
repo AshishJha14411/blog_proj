@@ -34,11 +34,15 @@ That last point shapes how you write code here. See **Comments** below.
    before you claim done. Current baseline: **backend 394, frontend 89, `tsc`
    clean.** If you change user-facing copy, grep `frontend/tests/e2e/` too — it
    does *not* run locally, so CI is the first place it fails.
-4. **Don't commit or push unless asked.** The owner reviews before commits, and
+4. **Update the docs in the same change, always.** Documentation is part of the
+   work, not a follow-up task — a doc that lags is worse than no doc, because it
+   is trusted. This is not optional and it is not "if time permits". See
+   **Keeping docs true** below for exactly which file to touch.
+5. **Don't commit or push unless asked.** The owner reviews before commits, and
    prefers few, well-described commits over many small ones.
-5. **Don't deploy unless asked.** See `docs/DEPLOY.md` for the sequence, which
+6. **Don't deploy unless asked.** See `docs/DEPLOY.md` for the sequence, which
    is canary-first for a reason.
-6. **Secrets never enter the repo**, not even in an example. CI runs gitleaks.
+7. **Secrets never enter the repo**, not even in an example. CI runs gitleaks.
 
 ---
 
@@ -181,6 +185,43 @@ here rather than running raw SQL — it makes the action reviewable and repeatab
 
 ---
 
+## Keeping docs true
+
+**Every change updates its docs in the same commit.** Not afterwards, not "when
+there's time". Stale documentation is actively harmful here because these files
+are what the next agent reads *instead of* the code — a wrong line propagates
+into decisions. This project has already shipped comments asserting that emails
+were queued with automatic retries when they were neither.
+
+Find your change in the left column and update the right one. If a row applies
+and you skipped it, the task is not done.
+
+| You changed… | Update |
+|---|---|
+| An endpoint, its params or its response | `backend/README.md` API table + regenerate `frontend/lib/api-types.ts` |
+| The database schema | `backend/README.md` — the ERD **and** the table list |
+| A command, flag, port or env var | `docs/DEVELOPMENT.md` (and `.env.example` if it's config) |
+| Behaviour a test locks in | the test, plus `docs/TESTING.md` if the *pattern* is new |
+| Anything user-visible | grep `frontend/tests/e2e/` — Cypress asserts on copy and only runs in CI |
+| A decision that constrains future work | a new ADR + a row in `docs/adr/README.md` |
+| A trap that cost you debugging time | `docs/GOTCHAS.md`, symptom-first |
+| The deploy sequence or a prod setting | `docs/DEPLOY.md` |
+| The test count | the baseline in `CLAUDE.md`, `docs/TESTING.md`, `docs/DEVELOPMENT.md`, `README.md`, `backend/README.md` |
+| Conventions or a guardrail | the relevant `CLAUDE.md` (root / `backend/` / `frontend/`) |
+
+**Also: correct what your change makes false.** Updating your own new docs isn't
+enough — grep for claims elsewhere that your change just invalidated, including
+`/** WHY **/` comments in code. When ADR 003 added retries, the flat claim "no
+retries" was left standing in four separate files, all of which had been true
+the day before.
+
+ADRs are the exception: they are immutable once accepted. Supersede with a new
+one, or add a dated note; never rewrite the record.
+
+**Verify, don't assert.** If you document a command, run it. If you document a
+number, measure it. If you can't verify something, say so in the text rather
+than stating it as fact.
+
 ## Definition of done
 
 1. Backend tests pass (394+), frontend tests pass (89+), `tsc --noEmit` clean.
@@ -188,8 +229,9 @@ here rather than running raw SQL — it makes the action reviewable and repeatab
    fails without the fix** — this is not optional; a test that passes on the
    broken code proves nothing.
 3. Copy changes: grep `frontend/tests/e2e/` for the old string.
-4. Docs updated when behaviour changed (`README.md` API tables,
-   `docs/GOTCHAS.md` if you found a new trap, an ADR if the decision was
-   structural).
+4. **Docs updated in this same change** — walk the table in **Keeping docs
+   true** and confirm every applicable row, including correcting statements
+   elsewhere that your change made false. A change is not done while a doc
+   contradicts it.
 5. Report honestly: what you verified vs. what you assumed. If something is
    unverified, say so.
