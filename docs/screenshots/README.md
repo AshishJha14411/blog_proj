@@ -25,7 +25,7 @@ Not referenced by any README yet — add the markdown once the file exists.
 | `story-detail.png` | A published story with comments, likes and **tag chips** visible | Tags now exist — generated stories take their genre as their tag |
 | `analytics.png` | `/admin/analytics` with the daily bar charts populated | Sign in as superadmin; pick the 30d range |
 | `api-docs.png` | Swagger UI at `<backend>/docs`, a few groups expanded | — |
-| `tests-passing.png` | Terminal showing `385 passed` | — |
+| `tests-passing.png` | Terminal showing `403 passed` | — |
 
 ## How to capture well
 

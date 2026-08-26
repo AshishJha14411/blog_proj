@@ -232,16 +232,28 @@ def test_moderation_queue_filters_by_flag_status_author_and_tag(db_session: Sess
 # -------------------------------------------------------------------
 
 @pytest.mark.parametrize(
-    "texts,expected",
+    "texts,should_flag",
     [
-        (["clean text", "another clean"], (False, [])),
-        (["this is shit", ""], (True, ["profanity"])),
-        (["", "ok", "fuck"], (True, ["profanity"])),
+        (["clean text", "another clean"], False),
+        # /** CONTRACT CHANGED: a single profane word no longer flags. It used
+        #     to, and because profanity is counted per word, that made the
+        #     odds of flagging rise with length — 7 of the 10 real production
+        #     stories tripped it, every one of them ordinary fiction. The
+        #     signal is now saturation (>= MODERATION_PROFANITY_THRESHOLD
+        #     occurrences), which is roughly length-independent.
+        #     See docs/adr/004-moderation-holds-not-rejects.md. **/
+        (["this is shit", ""], False),
+        (["", "ok", "fuck"], False),
+        # Saturated text still flags.
+        ([" ".join(["shit"] * 10)], True),
+        # Split across fields — title + body are scanned together.
+        ([" ".join(["fuck"] * 6), " ".join(["shit"] * 4)], True),
     ],
 )
-def test_moderate_content_detects_profanity(texts, expected):
+def test_moderate_content_flags_on_saturation_not_presence(texts, should_flag):
     flagged, cats = mod_service.moderate_content(texts)
-    if expected[0] is False:
-        assert flagged is False and cats == []
+    assert flagged is should_flag
+    if should_flag:
+        assert any("profanity" in c for c in cats)
     else:
-        assert flagged is True and "profanity" in cats
+        assert cats == []

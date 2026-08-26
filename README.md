@@ -81,8 +81,10 @@ writes it — no spinner, no waiting for a complete response.
 - Server-rendered story pages with OpenGraph metadata, `sitemap.xml`, `robots.txt`
 
 **Moderation & admin**
-- Automated profanity moderation on publish; stories land `pending` and flip to
-  `published` / `rejected`
+- Automated moderation on publish: stories land `pending`, clean ones publish
+  themselves, and flagged ones are **held for a human** — automation never
+  rejects, so no author loses work to a keyword match
+  ([ADR 004](docs/adr/004-moderation-holds-not-rejects.md))
 - Moderation queue, flag resolution, and an audit log
 - Role/permission management, creator-request workflow
 - Analytics with window-function daily rollups (posts, users, flags, clicks)
@@ -140,7 +142,7 @@ graph LR
 | Client state | **Zustand** | Small, unopinionated; used only for auth |
 | Types | **openapi-typescript** | Frontend types generated from the API schema, so drift is a compile error |
 | Jobs | **Celery** | Runs inline in production — see [ADR 001](docs/adr/001-workerless-inline-tasks.md) |
-| AI | **Google Gemini** | Streaming support and a usable free tier |
+| AI | **Google Gemini** (flash-lite) | Streaming support and a usable free tier; flash-lite chosen after flash degraded to 43s-to-first-token |
 | Hosting | **Cloud Run** + **Vercel** | Both scale to zero; the whole stack is near-free at this traffic level |
 | CI | **GitHub Actions** | Backend + frontend tests, E2E, gitleaks, Trivy image scan |
 
@@ -246,7 +248,7 @@ Each of these is a deliberate choice with a cost.
 
 | Decision | Why | What it costs |
 |---|---|---|
-| **No Celery worker in production**; tasks run inline | A polling consumer can't scale to zero on Cloud Run, so a working worker means an always-on CPU (~$40/mo) | **No retries.** A failed email is lost. → [ADR 001](docs/adr/001-workerless-inline-tasks.md) |
+| **No Celery worker in production**; tasks run inline | A polling consumer can't scale to zero on Cloud Run, so a working worker means an always-on CPU (~$40/mo) | **Celery's retry config is inert**, and a failed task fails silently. Operations that must not be lost retry inside themselves, under a hard time budget. → [ADR 001](docs/adr/001-workerless-inline-tasks.md) · [ADR 003](docs/adr/003-inline-smtp-retry.md) |
 | **Routes mounted at both `/api/v1` and the legacy root** | Lets backend and frontend deploy independently instead of in lockstep | Duplicate route table until the legacy mount is removed |
 | **Access token in memory, refresh token in `localStorage`** | The app is split across two domains, so a third-party cookie can't be relied on | An XSS could read the refresh token. Mitigated by rotation + reuse detection |
 | **Async reads, sync writes** | Writes enqueue follow-up work that must fire *after* commit; a commit-at-the-end unit of work would race it | Two session styles in one codebase |
@@ -271,7 +273,7 @@ blog_proj/
 │   │   ├── llm/            # Provider adapter — isolates the app from vendor SDKs
 │   │   └── core/           # Config, database engines, Redis client
 │   ├── alembic/versions/   # Migrations (linear chain)
-│   ├── tests/              # 385 tests: unit, integration, property-based, fuzz
+│   ├── tests/              # 403 tests: unit, integration, property-based, fuzz
 │   └── loadtest/           # Locust scenarios (not run in CI)
 ├── frontend/
 │   ├── app/                # Next.js App Router pages

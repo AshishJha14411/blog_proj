@@ -227,9 +227,19 @@ def test_queue_filters_by_status_author_and_tag(client: TestClient, db_session: 
     client.app.dependency_overrides[moderator_or_superadmin] = _override_require_roles(moderator)
 
     # filter by status
-    res_status = client.get("/moderation/queue", params={"status_filter": StoryStatus.published})
+    # /** NOTE: this compared item["status"] (a JSON string) to StoryStatus
+    #     .published (an enum) and passed only because the route's blanket
+    #     "drop everything not flagged" post-filter returned an EMPTY list —
+    #     and `all([])` is vacuously True. It asserted nothing. Now that an
+    #     explicit status filter is honoured, the rows come back and the
+    #     comparison has to be against the enum's value. **/
+    res_status = client.get("/moderation/queue", params={"status_filter": "published"})
     assert res_status.status_code == 200
-    assert all(item["status"] == StoryStatus.published for item in res_status.json()["items"])
+    published_items = res_status.json()["items"]
+    assert published_items, "an explicit status filter must return matching rows"
+    assert all(item["status"] == StoryStatus.published.value for item in published_items)
+    # s1 is published but NOT flagged — it must still be visible.
+    assert str(s1.id) in [i["id"] for i in published_items]
 
     # filter by author
     res_author = client.get("/moderation/queue", params={"author_id": str(author.id)})
@@ -372,3 +382,44 @@ def test_approve_reject_404(client: TestClient, db_session: Session):
 
     client.app.dependency_overrides.pop(moderator_or_superadmin, None)
     client.app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_queue_all_filter_shows_unflagged_stories(client: TestClient, db_session: Session):
+    """Selecting "All" must show non-flagged stories too.
+
+    REGRESSION: the route ended with an unconditional
+        items = [i for i in items if i.is_flagged]
+    so *every* filter — All, Generated, Rejected — was silently narrowed to
+    flagged rows. A moderator could not see the queue they were moderating,
+    and `total` was counted before that drop, so the header contradicted the
+    list.
+
+    The distinction the fix relies on is absent-vs-empty:
+      no status_filter at all -> flagged-only (the historical default)
+      status_filter=""        -> caller explicitly asked for All
+    """
+    from tests.factories import UserFactory, StoryFactory
+    role = _ensure_role(db_session, "moderator")
+    moderator = UserFactory(role=role)
+
+    flagged = StoryFactory(is_flagged=True, status=StoryStatus.pending)
+    clean = StoryFactory(is_flagged=False, status=StoryStatus.published)
+
+    client.app.dependency_overrides[moderator_or_superadmin] = _override_require_roles(moderator)
+    try:
+        # Explicit "All" — the empty string the dropdown sends.
+        res_all = client.get("/moderation/queue", params={"status_filter": "", "limit": 100})
+        assert res_all.status_code == 200
+        all_ids = [i["id"] for i in res_all.json()["items"]]
+        assert str(flagged.id) in all_ids
+        assert str(clean.id) in all_ids, "All must include stories that aren't flagged"
+        # total and items must describe the same set
+        assert res_all.json()["total"] >= len(all_ids)
+
+        # No parameter at all keeps the flagged-only default.
+        res_default = client.get("/moderation/queue", params={"limit": 100})
+        assert res_default.status_code == 200
+        assert all(i["is_flagged"] for i in res_default.json()["items"])
+        assert str(clean.id) not in [i["id"] for i in res_default.json()["items"]]
+    finally:
+        client.app.dependency_overrides.pop(moderator_or_superadmin, None)

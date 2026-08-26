@@ -1,6 +1,6 @@
 # Testing guide
 
-**Baseline: backend 385 · frontend 89 · `tsc --noEmit` clean.** Treat anything
+**Baseline: backend 403 · frontend 89 · `tsc --noEmit` clean.** Treat anything
 below that as a regression you introduced.
 
 ---
@@ -78,6 +78,37 @@ So CI is the only place e2e executes. The practical consequence is a real trap:
 
 This has already broken a build — a rename updated the app and the vitest specs
 but not `story.cy.ts`.
+
+### Cypress retries do NOT wait for server-rendered content
+
+`cy.contains(text, { timeout: 10000 })` re-queries **the DOM**. On a Server
+Component page (`export const dynamic = 'force-dynamic'` — `/`, `/userStory`)
+the HTML is produced once, server-side, and never changes without a navigation.
+So if the data wasn't there at that single render, retrying for ten seconds
+cannot help. It looks like a wait and isn't one.
+
+This bit `reader.cy.ts`: it created a story via the API and immediately
+asserted the title on `/userStory`. But `POST /stories/` does **not** publish —
+it lands the row as `pending` and queues moderation. The spec was racing
+asynchronous publication, and its retry was inert.
+
+**Rule:** when a spec depends on async server-side state, wait on the **API**,
+not the DOM:
+
+```typescript
+const waitForPublished = (attempt = 0) => {
+  if (attempt > 40) throw new Error('never published — is the worker running?');
+  cy.request('http://localhost:8000/api/v1/stories/?limit=20').then((list) => {
+    if (!list.body.items.some((s) => s.title === title)) {
+      cy.wait(500);
+      waitForPublished(attempt + 1);
+    }
+  });
+};
+```
+
+Alternatively `cy.reload()` between attempts — but polling the API is cheaper
+and gives a failure message that names the actual cause.
 
 Specs: `auth.cy.ts`, `negative.cy.ts`, `reader.cy.ts`, `story.cy.ts`. They live
 in `frontend/tests/e2e/`, **not** in a `cypress/` directory.

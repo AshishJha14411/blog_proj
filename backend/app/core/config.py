@@ -12,6 +12,30 @@ class Settings(BaseSettings):
     MAIL_PASSWORD: str
     MAIL_FROM: str
     MAIL_FROM_NAME: str
+    # /** WHY THESE ARE ENV-TUNABLE: the SMTP send runs INLINE inside the signup
+    #     request (no worker — ADR 001), and `task_time_limit` is enforced by a
+    #     Celery worker, so under eager mode it does nothing. That left the Cloud
+    #     Run service timeout (300s) as the only bound on a hung mail provider.
+    #     These two put the bound back where it belongs — at the call site — and
+    #     make it changeable without a redeploy when a provider misbehaves.
+    #
+    #     SMTP_TIMEOUT_SECONDS       caps ONE attempt (socket connect + commands).
+    #     SMTP_TOTAL_BUDGET_SECONDS  caps ALL attempts plus their backoff, so
+    #                                retries can never multiply into a long block.
+    #     The budget is the number that matters: it is the worst case a user can
+    #     wait on signup because of email. See docs/adr/003-inline-smtp-retry.md. **/
+    SMTP_TIMEOUT_SECONDS: float = float(os.getenv("SMTP_TIMEOUT_SECONDS", "5"))
+    SMTP_TOTAL_BUDGET_SECONDS: float = float(os.getenv("SMTP_TOTAL_BUDGET_SECONDS", "12"))
+
+    # /** HOW MANY profane words before a story is held for review.
+    #     Flagging on the FIRST hit made length the real filter: profanity is
+    #     counted per word, so the odds of at least one hit rise with word
+    #     count, and long stories were flagged essentially every time while
+    #     short ones sailed through. A threshold measures saturation instead,
+    #     which is roughly length-independent — and it is tunable without a
+    #     redeploy when the right number turns out to be different.
+    #     See docs/adr/004-moderation-holds-not-rejects.md. **/
+    MODERATION_PROFANITY_THRESHOLD: int = int(os.getenv("MODERATION_PROFANITY_THRESHOLD", "10"))
     ADMIN_USERNAME:str
     ADMIN_EMAIL:str
     ADMIN_PASSWORD:str
@@ -28,7 +52,20 @@ class Settings(BaseSettings):
     # 404s — prod only worked because the Cloud Run env var overrides this. If
     # that override is ever dropped, generation breaks silently, so keep the
     # default itself valid.
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-flash-latest")
+    # /** WHY flash-LITE and not flash: `gemini-flash-latest` became unusable —
+    #     measured 43s to first streaming chunk, and in production it exceeded
+    #     the 120s deadline outright:
+    #         ws_support: LLM error: Gemini streaming error: 504 Deadline Exceeded
+    #     Support chat looked broken (socket fine, message accepted, no reply)
+    #     and story generation was crawling. Same measurement on flash-lite:
+    #     **1.0s to first chunk**, ~40x faster, and no deadline failures.
+    #
+    #     Lite is a smaller model, so prose quality is lower — accepted, because
+    #     a fast answer beats a 504. Revisit if story quality suffers visibly.
+    #
+    #     NOTE: `gemini-2.5-flash-lite` and `gemini-2.0-flash-lite` both 404 —
+    #     retired for new users. The `-latest` alias is the one that resolves. **/
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-flash-lite-latest")
     GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY")
     OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.8"))

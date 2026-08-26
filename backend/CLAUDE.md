@@ -183,8 +183,17 @@ Consequences you must respect:
 
 - **Always `commit()` before `.delay()`.** The inline task opens its own session
   and must see a committed row.
-- **No retries.** A failed task is lost. Don't add a task that depends on retry
-  semantics without revisiting ADR 001.
+- **Celery's retry config is inert.** `autoretry_for`, `max_retries`,
+  `retry_backoff` on a task do **nothing** in eager mode — `self.retry()` raises
+  instead of re-running. Don't add a task that depends on retry semantics
+  without revisiting ADR 001; and don't read an existing task's retry decorator
+  as active protection.
+- **A failed task fails silently.** `task_eager_propagates=False` means the
+  exception never reaches the caller, which still returns 200. That is
+  deliberate — a mail outage must not fail a signup — but it means the only
+  evidence of a lost task is a log line. If a task must not be lost, retry
+  *inside* it: `Mailer.send_email` does exactly this
+  (`docs/adr/003-inline-smtp-retry.md`).
 - Keep tasks fast — their latency is now user-visible request latency.
 
 ---
@@ -202,5 +211,5 @@ The `rm -rf` + `cp` is required: only `backend/app` is bind-mounted, so edited
 tests do not reach the container otherwise, and you will be running stale code.
 Use `--user root` — the app user can't delete that directory.
 
-Baseline: **385 passed**. Hot reload is not enabled; `docker compose restart
+Baseline: **403 passed**. Hot reload is not enabled; `docker compose restart
 backend` after changing anything outside `app/`.

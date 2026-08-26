@@ -298,6 +298,150 @@ There is no worker (ADR 001). Without the flag, four call sites enqueue to a
 broker nobody consumes and **fail silently**: story publish (stays `pending`
 forever), signup verification email, webhook delivery, support escalation.
 
+### Long stories were auto-rejected; the moderation queue showed only flagged
+
+Two separate bugs that presented as one "moderation is broken".
+
+**Auto-rejection.** `moderate_content` flagged on the **first** profane word,
+and a flag meant `status = rejected`. Profanity is matched per word, so the odds
+of a hit rise with word count — meaning the rule was a **length filter wearing a
+safety filter's clothes**. Measured against the ten real production stories:
+**seven were auto-rejected**, including every story over 1,000 words, while the
+highest actual profanity count in any of them was 5.
+
+Fixed in two independent parts (both needed):
+- flagged stories are **held** as `pending` for a human, never auto-rejected;
+- flagging requires `MODERATION_PROFANITY_THRESHOLD` (default 10) occurrences,
+  so the signal is saturation rather than presence.
+
+Flagged content is still never auto-*published* — that safety property is
+untouched. See `docs/adr/004-moderation-holds-not-rejects.md`.
+
+> Don't "fix" a future false positive by lowering the threshold or extending
+> the whitelist. Both reintroduce the length bias. Add a separate severe-terms
+> list that flags at count ≥ 1 instead.
+
+**The queue only ever showed flagged rows.** The route ended with:
+
+```python
+items = [i for i in items if getattr(i, "is_flagged", False)]
+```
+
+applied *unconditionally*, so "All", "Generated" and "Rejected" were all
+silently narrowed to flagged stories — a moderator could not see the queue they
+were moderating. `total` was also counted before that drop, so the header
+contradicted the list, and pagination showed near-empty pages.
+
+The fix distinguishes **absent** from **empty**: no `status_filter` parameter
+keeps the flagged-only default (what a bare `/queue` has always returned), while
+`status_filter=""` means the caller explicitly chose "All". The flag filter moved
+into the SQL query so `total` and the page describe the same set.
+
+The frontend had a matching bug: `value={params.status || "flagged"}` snapped the
+dropdown back to "Flagged" whenever you picked All, because `""` is falsy. `??`
+instead of `||`.
+
+> A test "covering" this passed vacuously for the same reason — it asserted
+> `all(item["status"] == ... for item in items)` against a list the post-filter
+> had emptied, and `all([])` is `True`.
+
+### Support chat connects, accepts your message, and never replies
+
+**Symptom:** the widget opens, the WebSocket handshake succeeds, you send a
+message — and nothing comes back. No error in the UI. Eventually (up to 120s)
+"The assistant is unavailable."
+
+**Cause:** not the socket. The log line is:
+
+```
+ws_support: LLM error: Gemini streaming error: 504 Deadline Exceeded
+```
+
+`gemini-flash-latest` degraded to the point of being unusable — **43s to first
+streaming chunk** measured directly against the API, and past the 120s
+`LLM_TIMEOUT` in production. The handler *does* send an error frame, but only
+after the deadline expires, so the UI looks silent rather than broken.
+
+**Fix:** `LLM_MODEL=gemini-flash-lite-latest`. Same measurement: **1.0s to first
+chunk**, and a full support answer end-to-end in ~2.5s. It is an env var, so it
+takes effect without a rebuild.
+
+Two things that will waste your time here:
+
+- **It is not the token budget.** The obvious theory is that support chat
+  inherits `LLM_MAX_TOKENS=8192` (the story-writing budget) and asks for too
+  much. Measured: 8192 completed in 43s while 600 *deadlined at 111s*. Output
+  length was not the variable — the model was.
+- **`gemini-2.5-flash-lite` and `gemini-2.0-flash-lite` both 404** — retired for
+  new users. Only the `-latest` alias resolves.
+
+**Also:** `google-generativeai` 0.8.5 rejects `thinking_config` outright
+(`Unknown field for GenerationConfig`), so a thinking budget can't be set
+without migrating to the newer `google-genai` SDK. Flash-lite defaults to
+minimal thinking regardless.
+
+**Testing the socket by hand:** the frame protocol is `{"type":"user","content":…}`
+inbound and `{"type":"delta","text":…}` outbound, terminated by `{"type":"done"}`.
+Any other inbound `type` gets `"Unknown frame type."` — which is easy to
+misread as the chat being broken when it's the test that's wrong.
+
+### Stories stuck in `pending`, emails never sent, and no error anywhere
+
+**Symptom:** you publish a story and it sits at `pending` forever. Signups never
+receive a verification email. Nothing in the logs, no exception, no failed
+request — the API returns success every time.
+
+**Cause:** nothing consumed the task. `.delay()` succeeded — it enqueued to Redis
+— and no worker existed to drain the queue. The enqueue is the part that
+reports success, so everything upstream looks healthy.
+
+This was a **local-only** trap created by a config divergence:
+`docker-compose.yml` used to default `CELERY_TASK_ALWAYS_EAGER` to `false` while
+production sets it to `true`, and the optional `worker` container is only started
+by a bare `docker compose up -d`. So:
+
+```
+docker compose up -d                    → worker runs, tasks drain, all fine
+docker compose up -d backend db redis   → queue fills, nothing ever runs
+```
+
+**Fix:** the compose default is now `true`, so local matches production and no
+worker is needed. Verify with:
+
+```bash
+docker compose exec -T backend python -c \
+  "from app.worker import celery_app; print(celery_app.conf.task_always_eager)"
+```
+
+**Rule:** when a task's *effect* never happens but nothing errors, check who was
+supposed to consume it before debugging the task body.
+
+### A task's retry decorator is a lie in production
+
+**Symptom:** you read `@celery_app.task(autoretry_for=..., max_retries=3,
+retry_backoff=4, retry_jitter=True)` and conclude the operation is protected
+against transient failures. It isn't.
+
+**Cause:** production runs `task_always_eager=True`. **Eager mode does not
+retry** — `self.retry()` raises instead of re-executing. Every retry knob on
+every task is inert. `tests/unit/tasks/test_email_task.py` documents this: it
+asserts against `Retry` escaping `.apply()`.
+
+**And the failure is invisible.** `task_eager_propagates=False` swallows the
+exception so a broken task can't turn a successful write into a 500. Net effect
+for email: **signup returns 200, the verification email is never sent, the user
+is told nothing, and nothing retries.**
+
+**Rule:** if a task must not be lost, retry **inside** the operation, not via
+Celery. `Mailer.send_email` does this — 3 attempts, 1s linear backoff, with
+permanent errors (`SMTPRecipientsRefused`, `SMTPAuthenticationError`, …)
+short-circuiting so a rejected address doesn't burn a waiting user's time.
+See `docs/adr/003-inline-smtp-retry.md`.
+
+**Watch out:** `smtplib.SMTPException` subclasses `OSError`, so a blanket
+`except OSError` sweeps permanent failures into a retry loop. Name them
+explicitly.
+
 ### Vercel builds `main`
 
 Pushing to `dev` deploys no frontend. When reporting a frontend fix, say whether

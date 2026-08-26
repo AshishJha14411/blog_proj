@@ -20,7 +20,7 @@ A Python 3.12 / FastAPI application with:
   analytics, JSONB, partial and composite indexes, optimistic locking
 - **Streaming AI generation** over Server-Sent Events
 - **WebSockets** with ticket-based auth and a Redis pub/sub backplane
-- **385 tests** — unit, integration, property-based (Hypothesis), and fuzz
+- **403 tests** — unit, integration, property-based (Hypothesis), and fuzz
 
 ## Live Demo
 
@@ -114,7 +114,7 @@ everything):
 | Cache / broker | Redis 7 (Upstash in production) |
 | Jobs | Celery 5.4 — inline in production ([ADR 001](../docs/adr/001-workerless-inline-tasks.md)) |
 | Auth | python-jose (JWT) · passlib + bcrypt |
-| AI | Google Gemini via an adapter in `app/llm/` |
+| AI | Google Gemini (`gemini-flash-lite-latest`) via an adapter in `app/llm/` — flash-lite over flash for latency, see [GOTCHAS](../docs/GOTCHAS.md) |
 | Validation | Pydantic v2 · pydantic-settings |
 | Observability | Structured JSON logs · Sentry · prometheus-fastapi-instrumentator |
 | Testing | pytest · Hypothesis · fakeredis · factory-boy · Locust |
@@ -448,7 +448,7 @@ docker compose exec \
   -e TEST_DB_BASE="postgresql://test_user:test_password@db:5432/quill_test" \
   -e NO_NETWORK=0 \
   backend python -m pytest tests/ -m "not e2e"
-# 385 passed
+# 403 passed
 ```
 
 `TEST_DB_BASE` is overridden because the suite defaults to `localhost` (correct in

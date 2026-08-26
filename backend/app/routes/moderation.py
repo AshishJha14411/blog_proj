@@ -185,17 +185,28 @@ def list_moderation_queue(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    status_enum = _parse_story_status(status_filter)
+    # /** WHY THREE CASES AND NOT TWO: the queue used to drop every non-flagged
+    #     row from the page unconditionally, whatever the caller asked for — so
+    #     selecting "All", "Generated" or "Rejected" still showed only flagged
+    #     stories. A moderator could not see the queue they were moderating.
+    #
+    #     The distinction that fixes it is *absent* vs *empty*:
+    #       status_filter is None  -> parameter not sent  -> flagged-only, the
+    #                                 historical default a bare /queue returns
+    #       status_filter == ""    -> caller explicitly chose "All" -> no filter
+    #       anything else          -> that status (or `flagged`) **/
+    explicit_all = status_filter is not None and str(status_filter).strip() == ""
+    wants_flagged = status_filter is None or str(status_filter).strip().lower() == "flagged"
+
     total, items = moderation.moderation_queue(
         db=db,
-        status_filter=status_enum,
+        status_filter=None if (explicit_all or wants_flagged) else _parse_story_status(status_filter),
         author_id=author_id,
         tag=tag,
         limit=limit,
         offset=offset,
+        flagged_only=wants_flagged,
     )
-    # default view: flagged only (tests assert this)
-    items = [i for i in items if getattr(i, "is_flagged", False)]
     validated = [StoryOut.model_validate(i) for i in items]
     return {"total": total, "items": [v.model_dump() for v in validated]}
 

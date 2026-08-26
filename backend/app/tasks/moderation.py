@@ -4,9 +4,15 @@
     bad one), coupled the request thread to a third-party service, and made
     the publish endpoint fail whenever the moderator returned an error. **/
 
-/** WHAT: `moderate_story_task(story_id)` runs `moderate_content` against
-    the title + body, then flips the row from `pending` → `published` or
-    `rejected` (creating a Flag if flagged), and notifies the author. **/
+/** WHAT: `moderate_story_task(story_id)` runs `moderate_content` against the
+    title + body. Clean text is published. Flagged text is **held**: the row
+    stays `pending` with `is_flagged=True`, a Flag is opened for the queue, and
+    the author is notified that a human will review it.
+
+    It never auto-rejects. A keyword match is evidence, not a verdict — and
+    because the scan is per-word, the odds of a match rise with length, so
+    auto-rejecting on one hit silently penalised long stories. Only a human
+    sets `rejected`. **/
 
 /** WHY-THIS-WAY:
     - Task takes the story id, not the object — Celery must serialize args
@@ -89,10 +95,28 @@ def moderate_story_task(self, *, story_id: str) -> dict:
         flagged, categories = moderate_content([story.title or "", story.content or ""])
 
         if flagged:
+            # /** WHY THIS HOLDS FOR REVIEW INSTEAD OF REJECTING:
+            #     `moderate_content` is a keyword scan. One hit anywhere in the
+            #     text used to set `rejected` outright, and because the scan is
+            #     per-word, the chance of a hit grows with length — so the
+            #     longer and more ambitious the story, the more likely it was
+            #     auto-killed. A 4,400-word horror story was rejected on a
+            #     single word while a 78-word one sailed through. That is a
+            #     length filter wearing a safety filter's clothes.
+            #
+            #     A keyword match is evidence, not a verdict. The story now
+            #     stays `pending` and flagged, which is exactly what the
+            #     moderation queue exists to show a human. Nothing is
+            #     auto-published (the safety property is intact) and nothing is
+            #     auto-destroyed. A moderator approves or rejects.
+            #
+            #     Deliberately NOT "raise the profanity threshold" or "extend
+            #     the whitelist": both are guesses about which words fiction is
+            #     allowed to contain, and both still auto-reject when wrong. **/
             story.is_flagged = True
             story.flag_source = FlagSource.ai
             story.is_published = False
-            story.status = StoryStatus.rejected
+            story.status = StoryStatus.pending
 
             automod = get_automod_user(db)
             db.add(Flag(
@@ -106,7 +130,9 @@ def moderate_story_task(self, *, story_id: str) -> dict:
                 notify(
                     db,
                     recipient_id=story.user_id,
-                    action="story_rejected",
+                    # "held", not "rejected" — the author's work still exists
+                    # and a human is going to look at it.
+                    action="story_held_for_review",
                     actor_id=automod.id,
                     target_type="story",
                     target_id=story.id,
@@ -134,7 +160,7 @@ def moderate_story_task(self, *, story_id: str) -> dict:
         # only hear about state that's actually durable. Import lazily to keep
         # the webhook/Celery graph out of this module's import path.
         from app.services.webhooks import dispatch_event
-        event = "story.rejected" if flagged else "story.published"
+        event = "story.held_for_review" if flagged else "story.published"
         dispatch_event(db, event, {
             "id": str(story.id),
             "title": story.title,

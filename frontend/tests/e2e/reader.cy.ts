@@ -98,13 +98,51 @@ describe('Full-Stack Reader E2E Journey', () => {
           is_published: true,
         },
         // Important: Don't fail if story already exists (idempotency for retries)
-        failOnStatusCode: false 
+        failOnStatusCode: false
       }).then((res) => {
         // It's okay if it's 201 (Created) or 409 (Already exists from prev run)
-        expect(res.status).to.be.oneOf([201, 409]); 
+        expect(res.status).to.be.oneOf([201, 409]);
+
+        // WHY THIS WAIT EXISTS: POST /stories/ does NOT publish. It lands the
+        // row as `pending` and queues moderation; the story only becomes
+        // publicly visible once that task runs. This spec then asserts the
+        // title on /userStory — which is a Server Component with
+        // `force-dynamic`, so it renders ONCE, server-side. Cypress retrying
+        // `cy.contains(..., { timeout: 10000 })` re-queries a DOM that will
+        // never change, so a story that wasn't published at that single render
+        // can never appear no matter how long we wait. The retry looks like a
+        // wait and isn't one.
+        //
+        // So wait on the API — the thing that actually changes — before
+        // navigating. This tests the reader journey, not moderation latency.
+        const waitForPublished = (attempt = 0) => {
+          // 40 x 500ms = 20s. Publication takes ~1s once the worker is warm;
+          // the headroom is for a cold first task in CI. It exits as soon as
+          // the story appears, so the happy path costs one request.
+          if (attempt > 40) {
+            throw new Error(
+              `Story "${storyToCommentOn.title}" never became published. ` +
+              `Is the moderation task running? (Celery worker, or ` +
+              `CELERY_TASK_ALWAYS_EAGER=true)`,
+            );
+          }
+          cy.request({
+            method: 'GET',
+            url: 'http://localhost:8000/api/v1/stories/?limit=20&offset=0',
+          }).then((list) => {
+            const found = (list.body.items ?? []).some(
+              (s: { title: string }) => s.title === storyToCommentOn.title,
+            );
+            if (!found) {
+              cy.wait(500);
+              waitForPublished(attempt + 1);
+            }
+          });
+        };
+        waitForPublished();
       });
     });
-  }); 
+  });
 
   it('can navigate to stories, add a comment, and see it appear', () => {
     // --- ACT ---

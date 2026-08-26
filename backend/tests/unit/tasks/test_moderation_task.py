@@ -70,8 +70,19 @@ def test_task_approves_clean_story(db_session: Session, monkeypatch):
     assert db_session.query(Flag).filter_by(story_id=story.id).count() == 0
 
 
-def test_task_rejects_flagged_story_and_creates_flag(db_session: Session, monkeypatch):
-    """A flagged story must transition to rejected AND create a Flag row."""
+def test_task_holds_flagged_story_for_review_and_creates_flag(db_session: Session, monkeypatch):
+    """A flagged story is HELD for a human, never auto-rejected.
+
+    REGRESSION: this task used to set `rejected` on any keyword hit. Because
+    the scan is per-word, the chance of a hit rises with length, so the longer
+    the story the more likely it was destroyed — a 4,400-word story was
+    auto-rejected on one word while a 78-word one passed. That is a length
+    filter disguised as a safety filter.
+
+    The safety property that must NOT regress is the other half: flagged
+    content is still never auto-published. It is unlisted, flagged, queued for
+    a moderator. Only a human sets `rejected`.
+    """
     RoleFactory(name="user")
     story = _pending_story(db_session)
     _patch_task_db_session(monkeypatch, db_session)
@@ -87,8 +98,9 @@ def test_task_rejects_flagged_story_and_creates_flag(db_session: Session, monkey
     assert result.result["status"] == "flagged"
 
     db_session.refresh(story)
-    assert story.status == StoryStatus.rejected
-    assert story.is_published is False
+    assert story.status == StoryStatus.pending, "held for review, not rejected"
+    assert story.status != StoryStatus.rejected, "automation must never reject"
+    assert story.is_published is False, "flagged content must not go live"
     assert story.is_flagged is True
     assert story.flag_source == FlagSource.ai
 

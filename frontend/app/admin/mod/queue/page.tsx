@@ -12,7 +12,10 @@ export default function ModQueuePage() {
   const { ready, isMod } = useModGuard();
   const [items, setItems] = useState<QueueItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [params, setParams] = useState<ModQueueParams>({ status: "flagged", limit: 10, offset: 0 });
+  // Default to All. Automated moderation now HOLDS flagged stories as
+  // `pending` rather than rejecting them, so the queue's job is "everything a
+  // human hasn't ruled on yet" — starting on a single filter hid that.
+  const [params, setParams] = useState<ModQueueParams>({ status: "", limit: 10, offset: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -36,15 +39,24 @@ export default function ModQueuePage() {
         description={`${total} ${total === 1 ? 'item' : 'items'} matching this filter.`}
         actions={
           <Select
-            value={params.status || "flagged"}
+            /* WHY `??` AND NOT `||`: "All" is the empty string, which is
+               falsy, so `params.status || "flagged"` snapped the dropdown
+               straight back to "Flagged" the moment you picked All — the
+               request was correct, the control just lied about it. `??` only
+               falls back on null/undefined, so "" survives. */
+            value={params.status ?? ""}
             onChange={(e) => setParams((s) => ({ ...s, status: e.target.value as ModQueueParams['status'], offset: 0 }))}
             className="mt-0 w-44"
             aria-label="Filter by status"
           >
+            {/* All first: it's the default, and a moderator opening the queue
+                wants the whole picture before narrowing it. */}
+            <option value="">All</option>
+            <option value="pending">Pending review</option>
             <option value="flagged">Flagged</option>
             <option value="generated">Generated</option>
+            <option value="published">Published</option>
             <option value="rejected">Rejected</option>
-            <option value="">All</option>
           </Select>
         }
       />
