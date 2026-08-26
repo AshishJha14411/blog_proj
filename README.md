@@ -81,8 +81,10 @@ writes it — no spinner, no waiting for a complete response.
 - Server-rendered story pages with OpenGraph metadata, `sitemap.xml`, `robots.txt`
 
 **Moderation & admin**
-- Automated profanity moderation on publish; stories land `pending` and flip to
-  `published` / `rejected`
+- Automated moderation on publish: stories land `pending`, clean ones publish
+  themselves, and flagged ones are **held for a human** — automation never
+  rejects, so no author loses work to a keyword match
+  ([ADR 004](docs/adr/004-moderation-holds-not-rejects.md))
 - Moderation queue, flag resolution, and an audit log
 - Role/permission management, creator-request workflow
 - Analytics with window-function daily rollups (posts, users, flags, clicks)
@@ -271,7 +273,7 @@ blog_proj/
 │   │   ├── llm/            # Provider adapter — isolates the app from vendor SDKs
 │   │   └── core/           # Config, database engines, Redis client
 │   ├── alembic/versions/   # Migrations (linear chain)
-│   ├── tests/              # 394 tests: unit, integration, property-based, fuzz
+│   ├── tests/              # 403 tests: unit, integration, property-based, fuzz
 │   └── loadtest/           # Locust scenarios (not run in CI)
 ├── frontend/
 │   ├── app/                # Next.js App Router pages

@@ -1,3 +1,4 @@
+import re
 from sqlalchemy.orm import Session
 from app.utils.time import utcnow
 from fastapi import HTTPException, status
@@ -10,6 +11,7 @@ from app.models.stories import Story, StoryStatus
 from app.models.comment import Comment
 from app.models.user import User
 from app.services.notifications import notify
+from app.core.config import settings
 from better_profanity import profanity
 
 # /** WHY a whitelist: better_profanity's default list flags "hell", "damn",
@@ -174,12 +176,23 @@ def moderation_queue(
     tag: Optional[str],
     limit: int,
     offset: int,
+    flagged_only: bool = False,
 ) -> Tuple[int, List[Story]]:
+    """/** WHY `flagged_only` is a query filter and not a post-filter on the
+        page: the route used to fetch a page, then drop non-flagged rows from
+        it in Python. Two things broke. `total` was counted BEFORE the drop, so
+        the header ("N items matching this filter") disagreed with the list;
+        and a page of 10 could arrive with 9 removed, so pagination showed
+        near-empty pages while claiming more existed. Filtering in SQL makes
+        the count and the page describe the same set. **/"""
     q = db.query(Story).filter(Story.deleted_at.is_(None))
 
     if status_filter is not None:
         # ✅ compare with Enum; works for SQLAlchemy Enum columns
         q = q.filter(Story.status == status_filter)
+
+    if flagged_only:
+        q = q.filter(Story.is_flagged.is_(True))
 
     if author_id:
         q =  q.filter(Story.user_id == author_id)
@@ -191,9 +204,53 @@ def moderation_queue(
     items = q.order_by(Story.created_at.desc()).limit(limit).offset(offset).all()
     return total, items
 
-def moderate_content(texts: List[str]) -> Tuple[bool, List[str]]:
-    """Scans text for profanity. Returns (is_flagged, categories)."""
+_WORD_RE = re.compile(r"[a-zA-Z']+")
+
+
+def count_profane_words(texts: List[str]) -> int:
+    """Count profane word occurrences across `texts`.
+
+    /** WHY COUNT AND NOT `contains_profanity`: the boolean answers "is there a
+        rude word anywhere", which on a creative-writing platform is nearly
+        always yes for anything long enough. Counting lets the decision scale
+        with how much profanity is actually present rather than whether any
+        exists at all. **/
+
+    Occurrences, not distinct words — one word used twenty times is a stronger
+    signal than twenty words used once.
+    """
+    total = 0
     for text in texts:
-        if profanity.contains_profanity(text or ""):
-            return True, ["profanity"]
+        for word in _WORD_RE.findall(text or ""):
+            if profanity.contains_profanity(word):
+                total += 1
+    return total
+
+
+def moderate_content(texts: List[str]) -> Tuple[bool, List[str]]:
+    """Scan text for profanity. Returns `(is_flagged, categories)`.
+
+    /** WHY A THRESHOLD: flagging on a single hit made length the real filter.
+        Profanity is counted per word, so the chance of at least one hit grows
+        with the word count — a 4,400-word horror story tripped it on one word
+        while a 78-word one passed. Requiring
+        `MODERATION_PROFANITY_THRESHOLD` (default 10) occurrences means the
+        signal is "this text is saturated with profanity", which does not
+        scale with length in the same way, and lets fiction swear the way
+        fiction does.
+
+        Paired with the task change (flagged content is HELD for review, never
+        auto-rejected) the failure mode is now: a moderator sees it. **/
+
+    /** ⚠ ACCEPTED RISK: a single slur in an otherwise clean story no longer
+        trips this. The threshold is a false-positive fix, not a safety
+        upgrade. If a zero-tolerance list is ever needed, add a separate
+        severe-terms check that flags at count >= 1, and keep this threshold
+        for ordinary profanity — do NOT just lower the threshold, which
+        reintroduces the length bias. **/
+    """
+    threshold = max(1, int(getattr(settings, "MODERATION_PROFANITY_THRESHOLD", 10)))
+    hits = count_profane_words(texts)
+    if hits >= threshold:
+        return True, [f"profanity ({hits} occurrences, threshold {threshold})"]
     return False, []

@@ -298,6 +298,53 @@ There is no worker (ADR 001). Without the flag, four call sites enqueue to a
 broker nobody consumes and **fail silently**: story publish (stays `pending`
 forever), signup verification email, webhook delivery, support escalation.
 
+### Long stories were auto-rejected; the moderation queue showed only flagged
+
+Two separate bugs that presented as one "moderation is broken".
+
+**Auto-rejection.** `moderate_content` flagged on the **first** profane word,
+and a flag meant `status = rejected`. Profanity is matched per word, so the odds
+of a hit rise with word count — meaning the rule was a **length filter wearing a
+safety filter's clothes**. Measured against the ten real production stories:
+**seven were auto-rejected**, including every story over 1,000 words, while the
+highest actual profanity count in any of them was 5.
+
+Fixed in two independent parts (both needed):
+- flagged stories are **held** as `pending` for a human, never auto-rejected;
+- flagging requires `MODERATION_PROFANITY_THRESHOLD` (default 10) occurrences,
+  so the signal is saturation rather than presence.
+
+Flagged content is still never auto-*published* — that safety property is
+untouched. See `docs/adr/004-moderation-holds-not-rejects.md`.
+
+> Don't "fix" a future false positive by lowering the threshold or extending
+> the whitelist. Both reintroduce the length bias. Add a separate severe-terms
+> list that flags at count ≥ 1 instead.
+
+**The queue only ever showed flagged rows.** The route ended with:
+
+```python
+items = [i for i in items if getattr(i, "is_flagged", False)]
+```
+
+applied *unconditionally*, so "All", "Generated" and "Rejected" were all
+silently narrowed to flagged stories — a moderator could not see the queue they
+were moderating. `total` was also counted before that drop, so the header
+contradicted the list, and pagination showed near-empty pages.
+
+The fix distinguishes **absent** from **empty**: no `status_filter` parameter
+keeps the flagged-only default (what a bare `/queue` has always returned), while
+`status_filter=""` means the caller explicitly chose "All". The flag filter moved
+into the SQL query so `total` and the page describe the same set.
+
+The frontend had a matching bug: `value={params.status || "flagged"}` snapped the
+dropdown back to "Flagged" whenever you picked All, because `""` is falsy. `??`
+instead of `||`.
+
+> A test "covering" this passed vacuously for the same reason — it asserted
+> `all(item["status"] == ... for item in items)` against a list the post-filter
+> had emptied, and `all([])` is `True`.
+
 ### Support chat connects, accepts your message, and never replies
 
 **Symptom:** the widget opens, the WebSocket handshake succeeds, you send a

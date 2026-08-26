@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     #     wait on signup because of email. See docs/adr/003-inline-smtp-retry.md. **/
     SMTP_TIMEOUT_SECONDS: float = float(os.getenv("SMTP_TIMEOUT_SECONDS", "5"))
     SMTP_TOTAL_BUDGET_SECONDS: float = float(os.getenv("SMTP_TOTAL_BUDGET_SECONDS", "12"))
+
+    # /** HOW MANY profane words before a story is held for review.
+    #     Flagging on the FIRST hit made length the real filter: profanity is
+    #     counted per word, so the odds of at least one hit rise with word
+    #     count, and long stories were flagged essentially every time while
+    #     short ones sailed through. A threshold measures saturation instead,
+    #     which is roughly length-independent — and it is tunable without a
+    #     redeploy when the right number turns out to be different.
+    #     See docs/adr/004-moderation-holds-not-rejects.md. **/
+    MODERATION_PROFANITY_THRESHOLD: int = int(os.getenv("MODERATION_PROFANITY_THRESHOLD", "10"))
     ADMIN_USERNAME:str
     ADMIN_EMAIL:str
     ADMIN_PASSWORD:str
