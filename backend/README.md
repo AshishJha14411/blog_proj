@@ -114,7 +114,7 @@ everything):
 | Cache / broker | Redis 7 (Upstash in production) |
 | Jobs | Celery 5.4 — inline in production ([ADR 001](../docs/adr/001-workerless-inline-tasks.md)) |
 | Auth | python-jose (JWT) · passlib + bcrypt |
-| AI | Google Gemini via an adapter in `app/llm/` |
+| AI | Google Gemini (`gemini-flash-lite-latest`) via an adapter in `app/llm/` — flash-lite over flash for latency, see [GOTCHAS](../docs/GOTCHAS.md) |
 | Validation | Pydantic v2 · pydantic-settings |
 | Observability | Structured JSON logs · Sentry · prometheus-fastapi-instrumentator |
 | Testing | pytest · Hypothesis · fakeredis · factory-boy · Locust |

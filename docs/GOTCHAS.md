@@ -298,6 +298,46 @@ There is no worker (ADR 001). Without the flag, four call sites enqueue to a
 broker nobody consumes and **fail silently**: story publish (stays `pending`
 forever), signup verification email, webhook delivery, support escalation.
 
+### Support chat connects, accepts your message, and never replies
+
+**Symptom:** the widget opens, the WebSocket handshake succeeds, you send a
+message — and nothing comes back. No error in the UI. Eventually (up to 120s)
+"The assistant is unavailable."
+
+**Cause:** not the socket. The log line is:
+
+```
+ws_support: LLM error: Gemini streaming error: 504 Deadline Exceeded
+```
+
+`gemini-flash-latest` degraded to the point of being unusable — **43s to first
+streaming chunk** measured directly against the API, and past the 120s
+`LLM_TIMEOUT` in production. The handler *does* send an error frame, but only
+after the deadline expires, so the UI looks silent rather than broken.
+
+**Fix:** `LLM_MODEL=gemini-flash-lite-latest`. Same measurement: **1.0s to first
+chunk**, and a full support answer end-to-end in ~2.5s. It is an env var, so it
+takes effect without a rebuild.
+
+Two things that will waste your time here:
+
+- **It is not the token budget.** The obvious theory is that support chat
+  inherits `LLM_MAX_TOKENS=8192` (the story-writing budget) and asks for too
+  much. Measured: 8192 completed in 43s while 600 *deadlined at 111s*. Output
+  length was not the variable — the model was.
+- **`gemini-2.5-flash-lite` and `gemini-2.0-flash-lite` both 404** — retired for
+  new users. Only the `-latest` alias resolves.
+
+**Also:** `google-generativeai` 0.8.5 rejects `thinking_config` outright
+(`Unknown field for GenerationConfig`), so a thinking budget can't be set
+without migrating to the newer `google-genai` SDK. Flash-lite defaults to
+minimal thinking regardless.
+
+**Testing the socket by hand:** the frame protocol is `{"type":"user","content":…}`
+inbound and `{"type":"delta","text":…}` outbound, terminated by `{"type":"done"}`.
+Any other inbound `type` gets `"Unknown frame type."` — which is easy to
+misread as the chat being broken when it's the test that's wrong.
+
 ### Stories stuck in `pending`, emails never sent, and no error anywhere
 
 **Symptom:** you publish a story and it sits at `pending` forever. Signups never

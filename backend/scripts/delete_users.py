@@ -39,8 +39,27 @@ from sqlalchemy import create_engine, text
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Columns that represent authored content rather than account data.
-AUTHORED = {("stories", "user_id"), ("story_revisions", "user_id")}
+# Columns that represent authored content rather than account data. These move
+# to the new owner wholesale — none of them carry a per-user unique constraint.
+AUTHORED = {
+    ("stories", "user_id"),
+    ("story_revisions", "user_id"),
+    ("comments", "user_id"),
+}
+
+# /** Interactions are ALSO the user's records, but they carry
+#     UNIQUE(user_id, story_id) — "one like per user per story", enforced by the
+#     database. A blind reassign therefore raises IntegrityError the moment the
+#     new owner already interacted with the same story.
+#
+#     So they are moved row by row: reassigned where the target has no existing
+#     row, deleted where it does. Deleting the collision loses nothing — the
+#     engagement is already represented by the row the target owns. The mapping
+#     is {table: conflicting column}. **/
+INTERACTIONS = {
+    ("likes", "user_id"): "story_id",
+    ("bookmarks", "user_id"): "story_id",
+}
 
 FK_SQL = """
 select tc.table_name, kcu.column_name, c.is_nullable
@@ -111,6 +130,28 @@ def main() -> int:
                         c.execute(text(f"update {tbl} set {col} = :new where {col} = :u"),
                                   {"new": new_owner, "u": uid})
                     totals["reassigned"] += n
+                elif (tbl, col) in INTERACTIONS and new_owner:
+                    other = INTERACTIONS[(tbl, col)]
+                    dupes = c.execute(text(
+                        f"select count(*) from {tbl} t where t.{col} = :u and exists "
+                        f"(select 1 from {tbl} x where x.{col} = :new and x.{other} = t.{other})"
+                    ), {"u": uid, "new": new_owner}).scalar()
+                    movable = n - dupes
+                    if movable:
+                        print(f"      reassign  {tbl}.{col:22} {movable}")
+                        totals["reassigned"] += movable
+                    if dupes:
+                        print(f"      DELETE    {tbl}.{col:22} {dupes}"
+                              f"  (target already has this {other})")
+                        totals["deleted"] += dupes
+                    if not args.dry_run:
+                        # Drop the collisions first, then move what's left.
+                        c.execute(text(
+                            f"delete from {tbl} t where t.{col} = :u and exists "
+                            f"(select 1 from {tbl} x where x.{col} = :new and x.{other} = t.{other})"
+                        ), {"u": uid, "new": new_owner})
+                        c.execute(text(f"update {tbl} set {col} = :new where {col} = :u"),
+                                  {"new": new_owner, "u": uid})
                 elif nullable == "YES":
                     print(f"      null out  {tbl}.{col:22} {n}")
                     if not args.dry_run:

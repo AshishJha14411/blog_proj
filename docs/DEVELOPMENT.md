@@ -210,12 +210,16 @@ docker compose exec -T -e DATABASE_URL="<url>" -w /app backend \
 | `delete_users.py` | Remove accounts so an email can be re-registered; `--reassign-to` moves authored stories to another user first |
 
 **Deleting a user is not just a `DELETE`.** `users.id` is referenced by ~19
-tables, and the right handling differs per column: authored content should
-usually be *reassigned* (deleting a test account shouldn't remove published
-stories), nullable references like `view_history.user_id` should be *nulled* so
-the record survives as anonymous, and account-owned rows (likes, tokens,
-sessions) should be *deleted*. `delete_users.py` discovers the referencing
-columns from the catalog so a newly added table can't be silently missed.
+tables and the right handling differs per column. `delete_users.py` discovers
+the referencing columns from the catalog — so a newly added table can't be
+silently missed — and dispatches by what the column *means*:
+
+| Kind | Example | Handling with `--reassign-to` |
+|---|---|---|
+| Authored content | `stories`, `story_revisions`, `comments` | **Reassigned** — deleting a test account must not remove published work |
+| Interactions | `likes`, `bookmarks` | **Reassigned row by row.** These carry `UNIQUE (user_id, story_id)`, so a blind update raises `IntegrityError` the moment the new owner already interacted with that story. Colliding rows are dropped instead — nothing is lost, the engagement is already represented by the row the target owns |
+| Nullable references | `view_history.user_id`, `notifications.actor_id` | **Nulled** — the row is someone else's record and should survive, just without pointing at a user who no longer exists |
+| Account-owned | `oauth_accounts`, tokens, OTPs | **Deleted** — meaningless without the account |
 
 Add a script here for any one-off production change instead of running raw SQL —
 it makes the action reviewable, repeatable and diffable.
@@ -259,5 +263,7 @@ local check and fail there.
 | **Stories stuck in `pending`** | Nothing consumed the task. Check `CELERY_TASK_ALWAYS_EAGER` is `true` (it's the compose default) — if it's `false` you need the `worker` container running |
 | **Emails never arrive locally** | Same cause as above. If eager mode *is* on, check the send actually happened: the task logs `email sent (message_id=…)` |
 | Signup feels slow | It sends **two** emails (verification + OTP) inline. Bounded by `SMTP_TOTAL_BUDGET_SECONDS` (default 12s) |
+| Signing up with Google sends no email | Correct — `handle_google_login` creates the account already `is_verified=True`. Google proved the address; there is nothing to verify. Use the email/password form to test the mail lifecycle |
+| Support chat connects but never replies | The LLM is deadlining, not the socket. Check `LLM_MODEL` is `gemini-flash-lite-latest` — plain `flash` measured 43s to first token and 504s in production |
 
 More, with the full stories behind them, in `GOTCHAS.md`.

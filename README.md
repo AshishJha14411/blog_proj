@@ -140,7 +140,7 @@ graph LR
 | Client state | **Zustand** | Small, unopinionated; used only for auth |
 | Types | **openapi-typescript** | Frontend types generated from the API schema, so drift is a compile error |
 | Jobs | **Celery** | Runs inline in production — see [ADR 001](docs/adr/001-workerless-inline-tasks.md) |
-| AI | **Google Gemini** | Streaming support and a usable free tier |
+| AI | **Google Gemini** (flash-lite) | Streaming support and a usable free tier; flash-lite chosen after flash degraded to 43s-to-first-token |
 | Hosting | **Cloud Run** + **Vercel** | Both scale to zero; the whole stack is near-free at this traffic level |
 | CI | **GitHub Actions** | Backend + frontend tests, E2E, gitleaks, Trivy image scan |
 

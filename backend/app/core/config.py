@@ -42,7 +42,20 @@ class Settings(BaseSettings):
     # 404s — prod only worked because the Cloud Run env var overrides this. If
     # that override is ever dropped, generation breaks silently, so keep the
     # default itself valid.
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-flash-latest")
+    # /** WHY flash-LITE and not flash: `gemini-flash-latest` became unusable —
+    #     measured 43s to first streaming chunk, and in production it exceeded
+    #     the 120s deadline outright:
+    #         ws_support: LLM error: Gemini streaming error: 504 Deadline Exceeded
+    #     Support chat looked broken (socket fine, message accepted, no reply)
+    #     and story generation was crawling. Same measurement on flash-lite:
+    #     **1.0s to first chunk**, ~40x faster, and no deadline failures.
+    #
+    #     Lite is a smaller model, so prose quality is lower — accepted, because
+    #     a fast answer beats a 504. Revisit if story quality suffers visibly.
+    #
+    #     NOTE: `gemini-2.5-flash-lite` and `gemini-2.0-flash-lite` both 404 —
+    #     retired for new users. The `-latest` alias is the one that resolves. **/
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-flash-lite-latest")
     GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY")
     OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.8"))
