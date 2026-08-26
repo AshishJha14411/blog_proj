@@ -203,6 +203,20 @@ docker compose exec -T -e DATABASE_URL="<url>" -w /app backend \
   python -m scripts.backfill_story_tags --dry-run
 ```
 
+| Script | Purpose |
+|---|---|
+| `backfill_story_tags.py` | Derive tags from genre for stories created before that behaviour existed |
+| `grant_superadmin.py` | Promote or seed an operator account (`--oauth` for Google sign-in) |
+| `delete_users.py` | Remove accounts so an email can be re-registered; `--reassign-to` moves authored stories to another user first |
+
+**Deleting a user is not just a `DELETE`.** `users.id` is referenced by ~19
+tables, and the right handling differs per column: authored content should
+usually be *reassigned* (deleting a test account shouldn't remove published
+stories), nullable references like `view_history.user_id` should be *nulled* so
+the record survives as anonymous, and account-owned rows (likes, tokens,
+sessions) should be *deleted*. `delete_users.py` discovers the referencing
+columns from the catalog so a newly added table can't be silently missed.
+
 Add a script here for any one-off production change instead of running raw SQL —
 it makes the action reviewable, repeatable and diffable.
 

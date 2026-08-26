@@ -178,6 +178,11 @@ ad-hoc SQL typed at production:
 
 - `backfill_story_tags.py` — derive tags from genre for pre-existing stories
 - `grant_superadmin.py` — promote or seed an operator account
+- `delete_users.py` — remove accounts, optionally reassigning authored stories
+  so deleting a test account can't quietly destroy published content
+  (`--reassign-to`). Discovers the ~19 tables referencing `users.id` from the
+  catalog rather than a hardcoded list, and handles each by meaning: authored
+  content reassigned, nullable references nulled, account data deleted.
 
 Both take `--dry-run` and read `DATABASE_URL`. **Always dry-run against
 production first.** If you need a new one-off production action, add a script
